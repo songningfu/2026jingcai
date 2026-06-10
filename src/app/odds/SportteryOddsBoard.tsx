@@ -105,7 +105,7 @@ function MatchOdds({
                         onClick={() => onToggle(match, row, outcome)}
                         className={`min-h-16 rounded-lg border px-1 py-1.5 text-center transition ${
                           selected
-                            ? "border-neon bg-neon/15 text-neon shadow-[0_0_12px_rgba(65,226,150,0.15)]"
+                            ? "border-neon bg-neon/10 text-neon shadow-[0_0_10px_rgba(12,157,104,0.18)]"
                             : disabled
                               ? "border-line/50 bg-surface text-faint/50"
                               : "border-line bg-raised text-ink hover:border-neon/50"
@@ -282,7 +282,7 @@ export default function SportteryOddsBoard({
 
       {/* 底部模拟单 */}
       <aside
-        className={`${embedded ? "" : ""}fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 shadow-[0_-12px_32px_rgba(0,0,0,0.45)] backdrop-blur`}
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 shadow-[0_-8px_24px_rgba(24,36,32,0.08)] backdrop-blur"
       >
         {showDetails && selected.length > 0 && (
           <div className="mx-auto max-h-40 max-w-4xl overflow-auto border-b border-line px-4 py-3 text-sm">

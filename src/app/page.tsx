@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Countdown from "@/components/Countdown";
 import { getWorldCupMatches, STATUS_LABELS } from "@/lib/football-data";
 import { teamNameZh } from "@/lib/team-names";
 
@@ -13,41 +14,42 @@ const timeFmt = new Intl.DateTimeFormat("zh-CN", {
   hour12: false,
 });
 
-const FEATURES = [
+/** 世界杯小知识（全部与本届赛事/本站工具直接相关） */
+const KNOWLEDGE = [
   {
-    href: "/calculator",
-    title: "官方赔率工具",
-    desc: "竞彩官方在售赔率自动载入，点选即算概率、注数与模拟金额。",
-    tag: "AUTO",
+    title: "本届新赛制",
+    text: "2026 世界杯首次扩军到 48 队，分 12 个小组，每组前两名加 8 个成绩最好的第三名晋级 32 强，总场次 104 场，决赛 7 月 19 日打响。",
   },
   {
-    href: "/matches",
-    title: "赛程与比分",
-    desc: "104 场完整赛程，北京时间显示，比分每分钟自动更新。",
-    tag: "LIVE",
+    title: "观赛时差指南",
+    text: "美加墨三国主办，比赛多在北京时间凌晨 0 点到上午 12 点之间开球。小组赛阶段每天最多 4 场，黄金场次集中在早上 6 点到 10 点。",
   },
   {
-    href: "/games",
-    title: "积分竞猜",
-    desc: "纯虚拟积分趣味竞猜与排行榜，不涉及任何真钱。",
-    tag: "SOON",
+    title: "赔率与概率",
+    text: "十进制赔率的倒数就是市场隐含概率，三项之和会大于 1（多出的部分是返还率损耗）。本站工具会自动归一化成可比的百分比。",
+  },
+  {
+    title: "什么是串关",
+    text: "把多场比赛的结果组合在一起计算，总赔率为各场连乘，全中才有效。场次越多理论回报越高、全中概率也指数级下降——工具页可以直观算给你看。",
   },
 ] as const;
 
 export default async function Home() {
   const matches = await getWorldCupMatches().catch(() => []);
   const now = Date.now();
-  const spotlight = matches
-    .filter((m) => new Date(m.utcDate).getTime() > now - 3 * 3600_000)
-    .sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime())
-    .slice(0, 4);
+  const sorted = matches
+    .slice()
+    .sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+  const upcoming = sorted.filter((m) => new Date(m.utcDate).getTime() > now - 3 * 3600_000);
+  const next = upcoming.find((m) => m.status === "TIMED" || m.status === "SCHEDULED");
+  const spotlight = upcoming.slice(0, 6);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
-      {/* Hero：球场中圈线稿 */}
-      <section className="card anim-fade-up relative overflow-hidden px-7 py-12 sm:px-10">
+      {/* Hero + 倒计时 */}
+      <section className="card anim-fade-up relative overflow-hidden px-7 py-10 sm:px-10">
         <svg
-          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 text-neon/[0.07]"
+          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 text-neon/10"
           viewBox="0 0 200 200"
           fill="none"
           stroke="currentColor"
@@ -67,33 +69,46 @@ export default async function Home() {
           <br />
           看懂世界杯的每一场球
         </h1>
-        <p className="mt-4 max-w-xl text-sm leading-relaxed text-mut">
-          官方赔率换算、AI 赛事报告、完整赛程数据——我们卖的是信息和效率，不提供任何投注服务。
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-mut">
+          官方赔率换算、AI 赛事报告、完整赛程数据——只做信息和效率，不提供任何投注服务。
         </p>
-        <div className="mt-7 flex flex-wrap gap-3">
+        {next && (
+          <div className="mt-6">
+            <Countdown
+              target={next.utcDate}
+              label={`${teamNameZh(next.homeTeam.name)} vs ${teamNameZh(next.awayTeam.name)}`}
+            />
+          </div>
+        )}
+        <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/calculator"
-            className="rounded-lg bg-neon px-5 py-2.5 text-sm font-semibold text-pitch transition hover:brightness-110"
+            className="rounded-lg bg-neon px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
           >
             打开赔率工具
           </Link>
           <Link
             href="/matches"
-            className="rounded-lg border border-line-strong px-5 py-2.5 text-sm text-ink transition hover:border-neon/50 hover:text-neon"
+            className="rounded-lg border border-line-strong px-5 py-2.5 text-sm text-ink transition hover:border-neon/60 hover:text-neon"
           >
             查看赛程
           </Link>
         </div>
       </section>
 
-      {/* 今日焦点 */}
+      {/* 近期比赛 */}
       {spotlight.length > 0 && (
         <section className="mt-8">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
-            <h2 className="text-sm font-semibold tracking-wide text-mut">近期焦点</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-mut">
+              <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
+              近期比赛
+            </h2>
+            <Link href="/matches" className="text-xs text-neon hover:underline">
+              完整赛程 →
+            </Link>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {spotlight.map((m, i) => {
               const live = m.status === "IN_PLAY" || m.status === "PAUSED";
               const finished = m.status === "FINISHED";
@@ -101,17 +116,18 @@ export default async function Home() {
                 <Link
                   key={m.id}
                   href={`/match/${m.id}`}
-                  className="card anim-fade-up flex items-center justify-between px-5 py-4 transition hover:border-neon/40"
-                  style={{ animationDelay: `${i * 80}ms` }}
+                  className="card anim-fade-up flex items-center justify-between px-5 py-4 transition hover:border-neon/50"
+                  style={{ animationDelay: `${i * 70}ms` }}
                 >
-                  <div className="flex flex-col gap-1 text-sm">
-                    <span className="text-ink">
+                  <div className="flex min-w-0 flex-col gap-1 text-sm">
+                    <span className="truncate text-ink">
                       {teamNameZh(m.homeTeam.name)}
                       <span className="px-1.5 text-faint">vs</span>
                       {teamNameZh(m.awayTeam.name)}
                     </span>
                     <span className="text-xs text-faint">
-                      {timeFmt.format(new Date(m.utcDate))} · {m.group?.replace("GROUP_", "") ?? ""}组
+                      {timeFmt.format(new Date(m.utcDate))}
+                      {m.group ? ` · ${m.group.replace("GROUP_", "")}组` : ""}
                     </span>
                   </div>
                   {live || finished ? (
@@ -121,7 +137,7 @@ export default async function Home() {
                       {m.score.fullTime.home ?? 0}–{m.score.fullTime.away ?? 0}
                     </span>
                   ) : (
-                    <span className="chip">{STATUS_LABELS[m.status]}</span>
+                    <span className="chip shrink-0">{STATUS_LABELS[m.status]}</span>
                   )}
                 </Link>
               );
@@ -130,24 +146,24 @@ export default async function Home() {
         </section>
       )}
 
-      {/* 功能入口 */}
-      <section className="mt-8 grid gap-3 sm:grid-cols-3">
-        {FEATURES.map((card, i) => (
-          <Link
-            key={card.href}
-            href={card.href}
-            className="card anim-fade-up group p-5 transition hover:border-neon/40"
-            style={{ animationDelay: `${200 + i * 80}ms` }}
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-ink group-hover:text-neon">{card.title}</h2>
-              <span className="font-num text-[10px] font-semibold tracking-widest text-faint">
-                {card.tag}
-              </span>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-mut">{card.desc}</p>
-          </Link>
-        ))}
+      {/* 世界杯小知识 */}
+      <section className="mt-8">
+        <h2 className="mb-3 text-sm font-semibold text-mut">世界杯小知识</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {KNOWLEDGE.map((k, i) => (
+            <article
+              key={k.title}
+              className="card anim-fade-up p-5"
+              style={{ animationDelay: `${150 + i * 70}ms` }}
+            >
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <span className="h-3 w-1 rounded-full bg-neon" />
+                {k.title}
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-mut">{k.text}</p>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );

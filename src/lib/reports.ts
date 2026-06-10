@@ -163,8 +163,10 @@ async function getSquadsForTeams(teamIds: number[]): Promise<SquadRow[]> {
   return (basic.data ?? []) as SquadRow[];
 }
 
-/** 为一场比赛生成赛前报告并入库；返回禁用词命中情况供日志 */
-export async function generatePreviewReport(matchId: number): Promise<{ hits: string[] }> {
+/** 为一场比赛生成赛前报告并入库；返回过滤后的报告与禁用词命中情况 */
+export async function generatePreviewReport(
+  matchId: number,
+): Promise<{ report: PreviewReport; hits: string[] }> {
   const db = supabaseAdmin();
 
   const { data: match, error } = await db
@@ -271,7 +273,7 @@ export async function generatePreviewReport(matchId: number): Promise<{ hits: st
   if (hits.length > 0) {
     console.warn(`[banned-terms] match=${matchId} 命中并替换:`, hits);
   }
-  return { hits };
+  return { report, hits };
 }
 
 /** 为未来 N 小时内开球且还没有报告的比赛批量生成 */

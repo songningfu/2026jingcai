@@ -62,6 +62,32 @@ export async function getWorldCupMatches(): Promise<FdMatch[]> {
   return data.matches;
 }
 
+export interface FdStandingRow {
+  position: number;
+  team: { id: number; name: string; crest: string | null };
+  playedGames: number;
+  won: number;
+  draw: number;
+  lost: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+}
+
+/** 小组积分榜：group（如 "GROUP_A"）→ 排名行，缓存 5 分钟 */
+export async function getStandings(): Promise<Map<string, FdStandingRow[]>> {
+  const data = await fdFetch<{
+    standings: { group: string | null; type: string; table: FdStandingRow[] }[];
+  }>("/competitions/WC/standings", 300);
+  const map = new Map<string, FdStandingRow[]>();
+  for (const s of data.standings ?? []) {
+    if (s.type !== "TOTAL" || !s.group) continue;
+    map.set(s.group.toUpperCase().replace(" ", "_"), s.table);
+  }
+  return map;
+}
+
 /* ---------- 展示用映射 ---------- */
 
 export const STAGE_LABELS: Record<string, string> = {

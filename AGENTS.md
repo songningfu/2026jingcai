@@ -90,7 +90,7 @@ curl "http://localhost:3000/api/reports/generate?secret=$CRON_SECRET&match=<id>"
 ## 协作约定
 
 - 默认用中文回复用户、写界面文案；代码注释中文。
-- UI 风格：「夜场数据台」暗色主题。设计令牌在 `globals.css` 的 `@theme`（bg-pitch/surface/raised、text-ink/mut/faint、text-neon 数据绿、text-amber 赔率琥珀、text-live 红），复用 `.card` `.chip` 类与 `anim-*` 动画；数字一律加 `font-num tabular-nums`（Barlow Condensed 记分牌体）。不要再引入 emerald/neutral 等裸 Tailwind 调色板。
+- UI 风格：「简白数据纸」浅色主题（用户明确要求白色，勿改回暗色）。设计令牌在 `globals.css` 的 `@theme`（bg-pitch 页面底/surface 卡片/raised、text-ink/mut/faint、text-neon 数据绿、text-amber 赔率琥珀、text-live 红），换肤只改令牌值、语义名不动；复用 `.card` `.chip` 类与 `anim-*` 动画；数字一律加 `font-num tabular-nums`（Barlow Condensed 记分牌体）。不要引入 emerald/neutral 等裸 Tailwind 调色板。
 - 新功能完成后：① `npm run build` 必须通过；② 对照规格第 0/11 章自检；③ 更新 `../项目进度.md`。
 - 涉及爬虫/抓数的模糊地带（规格 4.3）：**停下来问用户，不要自行用绕过的方式解决**。
 - 不要主动 git commit/push，除非用户要求。

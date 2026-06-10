@@ -1,91 +1,175 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PreviewReport } from "@/lib/reports";
 
 /**
- * AI 报告展示面板：点击触发「分析中」动画，随后分区块交错浮现。
- * 报告内容是赛前预生成的（preview_json），动画为展示节奏设计。
+ * AI 报告面板。
+ * - 已有报告：点击后播放短动画再分块揭示（节奏感）。
+ * - 没有报告：点击触发 /api/reports/on-demand 现场生成，动画陪伴真实等待。
+ * - 展示层：双方数据对比条 + 引言卡 + 图标网格 + 数字自动高亮，避免纯文字墙。
  */
 
-const ANALYZE_MS = 1600;
+export interface TeamStats {
+  name: string;
+  count: number;
+  avgAge: number | null;
+  clubs: number;
+}
 
-const STEPS = ["读取双方大名单", "解析竞彩官方赔率", "比对近期状态数据", "生成中性分析"];
+const STEPS = [
+  "读取双方大名单",
+  "解析竞彩官方赔率",
+  "比对近期状态数据",
+  "调用 AI 生成中性分析",
+  "合规过滤与排版",
+];
 
-function Field({ label, text, delay }: { label: string; text: string; delay: number }) {
+/** 文本里的数字/百分比自动用记分牌字体高亮 */
+function Rich({ text }: { text: string }) {
+  const parts = text.split(/(\d+(?:\.\d+)?%?)/g);
   return (
-    <div className="anim-fade-up" style={{ animationDelay: `${delay}ms` }}>
-      <span className="mr-2 inline-block rounded bg-neon/10 px-1.5 py-0.5 text-xs text-neon">
-        {label}
+    <>
+      {parts.map((p, i) =>
+        /^\d/.test(p) ? (
+          <span key={i} className="font-num font-semibold text-neon">
+            {p}
+          </span>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** 双向对比条：左右两队同一指标 */
+function CompareBar({
+  label,
+  left,
+  right,
+  unit,
+}: {
+  label: string;
+  left: number;
+  right: number;
+  unit?: string;
+}) {
+  const max = Math.max(left, right) || 1;
+  return (
+    <div className="grid grid-cols-[4rem_1fr_5.5rem_1fr_4rem] items-center gap-2 text-xs">
+      <span className="font-num text-right text-sm font-bold tabular-nums text-ink">
+        {left}
+        {unit}
       </span>
-      <span className="text-sm leading-relaxed text-ink/90">{text}</span>
+      <div className="flex justify-end">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-raised">
+          <div
+            className="anim-grow-bar ml-auto h-full rounded-full bg-neon/80"
+            style={{ width: `${(left / max) * 100}%`, transformOrigin: "right" }}
+          />
+        </div>
+      </div>
+      <span className="text-center text-faint">{label}</span>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-raised">
+        <div
+          className="anim-grow-bar h-full rounded-full bg-amber/70"
+          style={{ width: `${(right / max) * 100}%` }}
+        />
+      </div>
+      <span className="font-num text-sm font-bold tabular-nums text-ink">
+        {right}
+        {unit}
+      </span>
     </div>
   );
 }
 
-function Block({
-  title,
-  children,
-  delay,
-}: {
-  title: string;
-  children: React.ReactNode;
-  delay: number;
-}) {
-  return (
-    <section className="card anim-fade-up p-5" style={{ animationDelay: `${delay}ms` }}>
-      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
-        <span className="h-3 w-1 rounded-full bg-neon" />
-        {title}
-      </h3>
-      <div className="space-y-3">{children}</div>
-    </section>
-  );
-}
+const BASIC_META = [
+  { key: "lineup", icon: "⚽", label: "阵容" },
+  { key: "injuries", icon: "🏥", label: "伤停" },
+  { key: "recent_form", icon: "📈", label: "近期状态" },
+  { key: "h2h", icon: "🤝", label: "历史交锋" },
+] as const;
 
-export default function AiReportPanel({ report }: { report: PreviewReport | null }) {
-  const [phase, setPhase] = useState<"idle" | "analyzing" | "done">("idle");
+const INSIGHT_META = [
+  { key: "attack_defense", icon: "⚔️", label: "攻防对位" },
+  { key: "key_players", icon: "⭐", label: "关键球员" },
+  { key: "form_curve", icon: "📉", label: "状态曲线" },
+] as const;
+
+export default function AiReportPanel({
+  matchId,
+  initialReport,
+  homeStats,
+  awayStats,
+}: {
+  matchId: number;
+  initialReport: PreviewReport | null;
+  homeStats: TeamStats | null;
+  awayStats: TeamStats | null;
+}) {
+  const [phase, setPhase] = useState<"idle" | "analyzing" | "done" | "error">("idle");
+  const [report, setReport] = useState<PreviewReport | null>(initialReport);
   const [step, setStep] = useState(0);
+  const [errMsg, setErrMsg] = useState("");
+  const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (phase !== "analyzing") return;
-    const stepTimer = setInterval(
-      () => setStep((s) => Math.min(s + 1, STEPS.length - 1)),
-      ANALYZE_MS / STEPS.length,
-    );
-    const doneTimer = setTimeout(() => setPhase("done"), ANALYZE_MS);
     return () => {
-      clearInterval(stepTimer);
-      clearTimeout(doneTimer);
+      if (stepTimer.current) clearInterval(stepTimer.current);
     };
-  }, [phase]);
+  }, []);
 
-  if (!report) {
-    return (
-      <div className="card border-dashed px-6 py-10 text-center">
-        <p className="text-sm text-mut">本场 AI 数据报告生成中，临近开赛自动发布。</p>
-      </div>
+  const start = async () => {
+    setStep(0);
+    setPhase("analyzing");
+    // 步骤推进：有现成报告快放（1.6s 走完），现场生成慢放（每 9s 一步，停在最后一步）
+    const interval = report ? 320 : 9000;
+    stepTimer.current = setInterval(
+      () => setStep((s) => Math.min(s + 1, STEPS.length - 1)),
+      interval,
     );
-  }
+
+    if (report) {
+      setTimeout(() => setPhase("done"), 1700);
+      return;
+    }
+    try {
+      const res = await fetch("/api/reports/on-demand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "生成失败");
+      setReport(data.report);
+      setPhase("done");
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "生成失败，请稍后重试");
+      setPhase("error");
+    } finally {
+      if (stepTimer.current) clearInterval(stepTimer.current);
+    }
+  };
+
+  /* ---------- 入口 / 加载 / 错误 ---------- */
 
   if (phase === "idle") {
     return (
       <button
         type="button"
-        onClick={() => {
-          setStep(0);
-          setPhase("analyzing");
-        }}
-        className="card group relative w-full overflow-hidden px-6 py-10 text-center transition hover:border-neon/50"
+        onClick={start}
+        className="card group w-full px-6 py-9 text-center transition hover:border-neon/50 hover:shadow-[0_4px_20px_rgba(12,157,104,0.1)]"
       >
         <span className="font-num block text-xs font-semibold tracking-[0.3em] text-faint">
           AI MATCH REPORT
         </span>
-        <span className="mt-2 block text-lg font-semibold text-ink group-hover:text-neon">
+        <span className="mt-2 block text-lg font-semibold text-ink transition group-hover:text-neon">
           ▶ 启动 AI 数据分析
         </span>
         <span className="mt-1 block text-xs text-faint">
-          基于大名单与竞彩官方赔率 · 中性分析 · 不构成购彩建议
+          {report ? "报告已就绪，点击查看" : "现场生成约需 1 分钟"} · 中性分析 · 不构成购彩建议
         </span>
       </button>
     );
@@ -93,8 +177,7 @@ export default function AiReportPanel({ report }: { report: PreviewReport | null
 
   if (phase === "analyzing") {
     return (
-      <div className="card relative overflow-hidden px-6 py-10">
-        {/* 扫描线 */}
+      <div className="card relative overflow-hidden px-6 py-9">
         <div className="anim-scan pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-transparent via-neon/10 to-transparent" />
         <div className="flex flex-col items-center gap-4">
           <div className="flex gap-1.5">
@@ -124,31 +207,120 @@ export default function AiReportPanel({ report }: { report: PreviewReport | null
     );
   }
 
+  if (phase === "error" || !report) {
+    return (
+      <div className="card border-live/30 px-6 py-8 text-center">
+        <p className="text-sm text-live">{errMsg || "生成失败"}</p>
+        <button
+          type="button"
+          onClick={() => setPhase("idle")}
+          className="mt-3 rounded-lg border border-line px-4 py-1.5 text-sm text-mut hover:text-ink"
+        >
+          重试
+        </button>
+      </div>
+    );
+  }
+
+  /* ---------- 报告呈现 ---------- */
+
+  const showCompare =
+    homeStats && awayStats && (homeStats.avgAge !== null || awayStats.avgAge !== null);
+
   return (
     <div className="space-y-4">
-      <Block title="AI 赛前分析" delay={0}>
-        <p className="text-sm leading-relaxed text-ink/90">{report.ai_preview}</p>
-      </Block>
-      <Block title="基本面" delay={120}>
-        <Field label="阵容" text={report.basic.lineup} delay={200} />
-        <Field label="伤停" text={report.basic.injuries} delay={280} />
-        <Field label="近期状态" text={report.basic.recent_form} delay={360} />
-        <Field label="历史交锋" text={report.basic.h2h} delay={440} />
-      </Block>
-      <Block title="数据洞察" delay={240}>
-        <Field label="攻防" text={report.data_insight.attack_defense} delay={320} />
-        <Field label="关键球员" text={report.data_insight.key_players} delay={400} />
-        <Field label="状态曲线" text={report.data_insight.form_curve} delay={480} />
-      </Block>
-      <Block title="市场价格信息" delay={360}>
-        <p className="text-sm leading-relaxed text-ink/90">{report.odds_reading}</p>
-        <p className="text-xs text-faint">以上为竞彩官方公开价格的客观描述，非任何形式的建议。</p>
-      </Block>
+      {/* 双方硬数据对比 */}
+      {showCompare && (
+        <section className="card anim-fade-up p-5">
+          <div className="mb-4 flex items-center justify-between text-sm font-semibold">
+            <span className="text-neon">{homeStats.name}</span>
+            <span className="text-xs font-normal text-faint">名单数据对比</span>
+            <span className="text-amber">{awayStats.name}</span>
+          </div>
+          <div className="space-y-3">
+            <CompareBar label="名单人数" left={homeStats.count} right={awayStats.count} />
+            {homeStats.avgAge !== null && awayStats.avgAge !== null && (
+              <CompareBar
+                label="平均年龄"
+                left={homeStats.avgAge}
+                right={awayStats.avgAge}
+                unit="岁"
+              />
+            )}
+            <CompareBar label="效力俱乐部" left={homeStats.clubs} right={awayStats.clubs} />
+          </div>
+        </section>
+      )}
+
+      {/* AI 赛前分析：引言卡 */}
+      <section
+        className="card anim-fade-up relative overflow-hidden p-6"
+        style={{ animationDelay: "100ms" }}
+      >
+        <span className="font-num pointer-events-none absolute -top-3 left-4 text-7xl text-neon/10">
+          &ldquo;
+        </span>
+        <p className="font-num text-xs font-semibold tracking-[0.25em] text-neon">AI 赛前分析</p>
+        <p className="mt-3 text-[15px] leading-loose text-ink/90">
+          <Rich text={report.ai_preview} />
+        </p>
+      </section>
+
+      {/* 基本面：2×2 图标网格 */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {BASIC_META.map((m, i) => (
+          <section
+            key={m.key}
+            className="card anim-fade-up p-5"
+            style={{ animationDelay: `${180 + i * 80}ms` }}
+          >
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <span aria-hidden>{m.icon}</span>
+              {m.label}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-mut">
+              <Rich text={report.basic[m.key]} />
+            </p>
+          </section>
+        ))}
+      </div>
+
+      {/* 数据洞察：左色条行卡 */}
+      <section className="card anim-fade-up p-5" style={{ animationDelay: "420ms" }}>
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+          <span className="h-3 w-1 rounded-full bg-neon" />
+          数据洞察
+        </h3>
+        <div className="space-y-3">
+          {INSIGHT_META.map((m) => (
+            <div key={m.key} className="rounded-lg border-l-2 border-neon/50 bg-raised/60 p-3">
+              <p className="text-xs font-medium text-neon">
+                {m.icon} {m.label}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-mut">
+                <Rich text={report.data_insight[m.key]} />
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 市场价格信息 */}
+      <section className="card anim-fade-up p-5" style={{ animationDelay: "500ms" }}>
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+          <span className="h-3 w-1 rounded-full bg-amber" />
+          市场价格信息
+        </h3>
+        <p className="text-sm leading-relaxed text-mut">
+          <Rich text={report.odds_reading} />
+        </p>
+        <p className="mt-2 text-xs text-faint">以上为竞彩官方公开价格的客观描述，非任何形式的建议。</p>
+      </section>
 
       {/* 深度分析：订阅预留位 */}
       <section
-        className="card anim-fade-up relative overflow-hidden border-amber/20 p-5"
-        style={{ animationDelay: "480ms" }}
+        className="card anim-fade-up relative overflow-hidden border-amber/25 p-5"
+        style={{ animationDelay: "580ms" }}
       >
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-amber">
@@ -158,7 +330,7 @@ export default function AiReportPanel({ report }: { report: PreviewReport | null
               订阅尊享 · 即将上线
             </span>
           </h3>
-          <span className="text-amber/60">🔒</span>
+          <span aria-hidden>🔒</span>
         </div>
         <div className="mt-3 space-y-2" aria-hidden>
           <div className="h-3 w-11/12 rounded bg-raised" />

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { DISCLAIMER, impliedProbabilities } from "@/lib/odds";
+import { getStandings, type FdStandingRow } from "@/lib/football-data";
+import { DISCLAIMER } from "@/lib/odds";
 import type { PreviewReport } from "@/lib/reports";
 import { supabaseAdmin } from "@/lib/supabase";
-import AiReportPanel from "./AiReportPanel";
+import { teamNameZh } from "@/lib/team-names";
+import AiReportPanel, { type TeamStats } from "./AiReportPanel";
 
 export const revalidate = 300;
 
@@ -12,13 +14,6 @@ interface TeamRow {
   name_zh: string;
   logo_url: string | null;
   group_name: string | null;
-}
-interface OddsRow {
-  play_type: string;
-  handicap: number | null;
-  outcome: string;
-  odd: number;
-  captured_at: string;
 }
 interface SquadRow {
   team_id: number;
@@ -62,6 +57,13 @@ function one<T>(v: T | T[] | null): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
+function age(dob: string | null): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 3600_000));
+}
+
 async function getMatchBundle(id: number) {
   const db = supabaseAdmin();
   const { data: match } = await db
@@ -77,21 +79,13 @@ async function getMatchBundle(id: number) {
   const away = one(match.away as unknown as TeamRow | TeamRow[] | null);
   const teamIds = [home?.id, away?.id].filter((x): x is number => typeof x === "number");
 
-  const [oddsRes, squadsRes] = await Promise.all([
-    db
-      .from("odds")
-      .select("play_type, handicap, outcome, odd, captured_at")
-      .eq("match_id", id)
-      .order("captured_at", { ascending: false })
-      .limit(40),
-    teamIds.length
-      ? db
-          .from("squads")
-          .select("team_id, player_name, position, shirt_number, club, date_of_birth")
-          .in("team_id", teamIds)
-          .order("shirt_number", { ascending: true, nullsFirst: false })
-      : Promise.resolve({ data: [] as SquadRow[] }),
-  ]);
+  const squadsRes = teamIds.length
+    ? await db
+        .from("squads")
+        .select("team_id, player_name, position, shirt_number, club, date_of_birth")
+        .in("team_id", teamIds)
+        .order("shirt_number", { ascending: true, nullsFirst: false })
+    : { data: [] as SquadRow[] };
 
   const rawReports = match.reports as unknown as
     | { preview_json: PreviewReport | null }
@@ -99,14 +93,7 @@ async function getMatchBundle(id: number) {
     | null;
   const report = (Array.isArray(rawReports) ? rawReports[0] : rawReports)?.preview_json ?? null;
 
-  return {
-    match,
-    home,
-    away,
-    report,
-    odds: (oddsRes.data ?? []) as OddsRow[],
-    squads: (squadsRes.data ?? []) as SquadRow[],
-  };
+  return { match, home, away, report, squads: (squadsRes.data ?? []) as SquadRow[] };
 }
 
 export async function generateMetadata({
@@ -121,84 +108,94 @@ export async function generateMetadata({
   const away = bundle.away?.name_zh ?? "待定";
   return {
     title: `${home} vs ${away} — 数据与 AI 报告`,
-    description: `2026 世界杯 ${home} 对阵 ${away}：官方赔率、双方大名单、AI 中性分析。仅供参考，不构成购彩建议。`,
+    description: `2026 世界杯 ${home} 对阵 ${away}：小组积分榜、双方大名单、AI 中性分析。仅供参考，不构成购彩建议。`,
   };
 }
 
-/* ---------- 赔率卡 ---------- */
-
-function latestSet(odds: OddsRow[], playType: string): OddsRow[] {
-  const seen = new Set<string>();
-  const out: OddsRow[] = [];
-  for (const row of odds) {
-    if (row.play_type !== playType) continue;
-    const key = `${row.handicap ?? 0}:${row.outcome}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
+function teamStats(players: SquadRow[], name: string): TeamStats | null {
+  if (players.length === 0) return null;
+  const ages = players.map((p) => age(p.date_of_birth)).filter((a): a is number => a !== null);
+  const clubs = new Set(players.map((p) => p.club).filter(Boolean));
+  return {
+    name,
+    count: players.length,
+    avgAge: ages.length
+      ? Number((ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1))
+      : null,
+    clubs: clubs.size,
+  };
 }
 
-function OddsTriple({ title, rows }: { title: string; rows: OddsRow[] }) {
-  const order = ["主胜", "平", "客胜"];
-  const sorted = order
-    .map((o) => rows.find((r) => r.outcome === o))
-    .filter((r): r is OddsRow => !!r);
-  if (sorted.length !== 3) return null;
-  const implied = impliedProbabilities(sorted.map((r) => Number(r.odd)));
+/* ---------- 小组积分榜 ---------- */
+
+function GroupTable({
+  group,
+  rows,
+  highlightIds,
+}: {
+  group: string;
+  rows: FdStandingRow[];
+  highlightIds: number[];
+}) {
   return (
-    <div>
-      <p className="mb-2 text-xs text-mut">
-        {title}
-        {implied && (
-          <span className="ml-2 text-faint">
-            理论返还率 <span className="font-num">{(implied.returnRate * 100).toFixed(1)}%</span>
-          </span>
-        )}
-      </p>
-      <div className="grid grid-cols-3 gap-2">
-        {sorted.map((row, i) => {
-          const p = implied ? implied.probs[i] : null;
-          return (
-            <div key={row.outcome} className="rounded-lg bg-raised p-3 text-center">
-              <div className="text-xs text-mut">{row.outcome}</div>
-              <div className="font-num mt-1 text-2xl font-bold tabular-nums text-amber">
-                {Number(row.odd).toFixed(2)}
-              </div>
-              {p !== null && (
-                <>
-                  <div className="font-num mt-1 text-xs tabular-nums text-neon">
-                    {(p * 100).toFixed(1)}%
-                  </div>
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
-                    <div
-                      className="anim-grow-bar h-full rounded-full bg-neon/70"
-                      style={{ width: `${p * 100}%`, animationDelay: `${i * 120}ms` }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <section className="card anim-fade-up p-5" style={{ animationDelay: "100ms" }}>
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+        <span className="h-3 w-1 rounded-full bg-neon" />
+        {group}组积分榜
+      </h2>
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs text-faint">
+          <tr>
+            <th className="py-1.5 font-normal">排名</th>
+            <th className="py-1.5 font-normal">球队</th>
+            <th className="py-1.5 text-center font-normal">赛</th>
+            <th className="py-1.5 text-center font-normal">胜/平/负</th>
+            <th className="py-1.5 text-center font-normal">净胜</th>
+            <th className="py-1.5 text-right font-normal">积分</th>
+          </tr>
+        </thead>
+        <tbody className="font-num tabular-nums">
+          {rows.map((r) => {
+            const mine = highlightIds.includes(r.team.id);
+            return (
+              <tr
+                key={r.team.id}
+                className={`border-t border-line ${mine ? "bg-neon/5" : ""}`}
+              >
+                <td className="py-2 text-mut">{r.position}</td>
+                <td className="py-2">
+                  <span className="flex items-center gap-2 font-sans text-ink">
+                    {r.team.crest && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.team.crest} alt="" className="h-4 w-4 object-contain" />
+                    )}
+                    <span className={mine ? "font-semibold" : ""}>
+                      {teamNameZh(r.team.name)}
+                    </span>
+                  </span>
+                </td>
+                <td className="py-2 text-center text-mut">{r.playedGames}</td>
+                <td className="py-2 text-center text-mut">
+                  {r.won}/{r.draw}/{r.lost}
+                </td>
+                <td className="py-2 text-center text-mut">
+                  {r.goalDifference > 0 ? `+${r.goalDifference}` : r.goalDifference}
+                </td>
+                <td className="py-2 text-right font-bold text-ink">{r.points}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-faint">每组前两名直接晋级，8 个成绩最好的第三名递补进 32 强。</p>
+    </section>
   );
 }
 
-/* ---------- 名单卡 ---------- */
-
-function age(dob: string | null): number | null {
-  if (!dob) return null;
-  const d = new Date(dob);
-  if (Number.isNaN(d.getTime())) return null;
-  return Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 3600_000));
-}
+/* ---------- 名单 ---------- */
 
 function SquadList({ team, players }: { team: TeamRow; players: SquadRow[] }) {
-  const ages = players.map((p) => age(p.date_of_birth)).filter((a): a is number => a !== null);
-  const avgAge = ages.length ? (ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1) : null;
+  const stats = teamStats(players, team.name_zh);
   const byPos = POSITION_ORDER.map((pos) => ({
     pos,
     list: players.filter((p) => p.position === pos),
@@ -215,7 +212,7 @@ function SquadList({ team, players }: { team: TeamRow; players: SquadRow[] }) {
           {team.name_zh} 大名单
         </span>
         <span className="font-num text-xs tabular-nums text-mut">
-          {players.length} 人{avgAge ? ` · 平均 ${avgAge} 岁` : ""}
+          {players.length} 人{stats?.avgAge ? ` · 平均 ${stats.avgAge} 岁` : ""}
           <span className="ml-2 inline-block transition group-open:rotate-90">›</span>
         </span>
       </summary>
@@ -252,19 +249,26 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const bundle = await getMatchBundle(Number(id));
   if (!bundle) notFound();
-  const { match, home, away, report, odds, squads } = bundle;
+  const { match, home, away, report, squads } = bundle;
 
   const finished = match.status === "finished";
   const live = match.status === "live";
-  const whl = latestSet(odds, "whl");
-  const handicapRows = latestSet(odds, "handicap");
-  const handicapValue = handicapRows[0]?.handicap;
+
+  // 小组赛阶段拉积分榜
+  let standings: FdStandingRow[] | null = null;
+  if (match.stage === "group" && match.group_name) {
+    const map = await getStandings().catch(() => null);
+    standings = map?.get(`GROUP_${match.group_name}`) ?? null;
+  }
+
+  const homePlayers = home ? squads.filter((s) => s.team_id === home.id) : [];
+  const awayPlayers = away ? squads.filter((s) => s.team_id === away.id) : [];
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       {/* 比赛头部 */}
       <div className="card anim-fade-up relative overflow-hidden px-6 py-8">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon/60 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon/50 to-transparent" />
         <p className="mb-5 text-center text-xs text-mut">
           {STAGE_ZH[match.stage] ?? match.stage}
           {match.group_name ? ` · ${match.group_name}组` : ""} ·{" "}
@@ -308,31 +312,13 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div className="mt-4 space-y-4">
-        {/* 官方赔率 */}
-        {whl.length === 3 && (
-          <section className="card anim-fade-up p-5" style={{ animationDelay: "100ms" }}>
-            <h2 className="mb-4 flex items-center justify-between text-sm font-semibold text-ink">
-              <span className="flex items-center gap-2">
-                <span className="h-3 w-1 rounded-full bg-amber" />
-                竞彩官方赔率
-              </span>
-              <span className="text-xs font-normal text-faint">
-                更新于 {new Date(whl[0].captured_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}
-              </span>
-            </h2>
-            <div className="space-y-4">
-              <OddsTriple title="胜平负" rows={whl} />
-              {handicapRows.length === 3 && (
-                <OddsTriple
-                  title={`让球胜平负（${handicapValue! > 0 ? "+" : ""}${handicapValue}）`}
-                  rows={handicapRows}
-                />
-              )}
-            </div>
-            <p className="mt-4 text-xs leading-relaxed text-faint">
-              绿色为赔率反推的归一化概率，含市场情绪，非真实胜率。{DISCLAIMER}
-            </p>
-          </section>
+        {/* 小组积分榜 */}
+        {standings && match.group_name && (
+          <GroupTable
+            group={match.group_name}
+            rows={standings}
+            highlightIds={[home?.id, away?.id].filter((x): x is number => typeof x === "number")}
+          />
         )}
 
         {/* 双方大名单 */}
@@ -343,18 +329,23 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               双方大名单
             </h2>
             <div className="space-y-2">
-              <SquadList team={home} players={squads.filter((s) => s.team_id === home.id)} />
-              <SquadList team={away} players={squads.filter((s) => s.team_id === away.id)} />
+              <SquadList team={home} players={homePlayers} />
+              <SquadList team={away} players={awayPlayers} />
             </div>
             <p className="mt-3 text-xs text-faint">
-              大名单为赛前注册名单，不等同于首发阵容；以官方临场公布为准。
+              大名单为赛前注册名单，不等同于首发阵容；伤停以官方临场公布为准（详见 AI 分析的伤停小节）。
             </p>
           </section>
         )}
 
-        {/* AI 报告（点击启动，动画揭示） */}
+        {/* AI 报告：随时可现场生成 */}
         <div className="anim-fade-up" style={{ animationDelay: "260ms" }}>
-          <AiReportPanel report={report} />
+          <AiReportPanel
+            matchId={match.id}
+            initialReport={report}
+            homeStats={home ? teamStats(homePlayers, home.name_zh) : null}
+            awayStats={away ? teamStats(awayPlayers, away.name_zh) : null}
+          />
         </div>
 
         {/* 固定免责声明（第 0 章第 3 条） */}

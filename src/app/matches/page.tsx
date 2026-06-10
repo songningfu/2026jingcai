@@ -150,17 +150,39 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
   );
 }
 
-export default async function MatchesPage() {
+const FILTERS = [
+  { key: "all", label: "全部" },
+  { key: "today", label: "今天" },
+  { key: "group", label: "小组赛" },
+  { key: "knockout", label: "淘汰赛" },
+] as const;
+type FilterKey = (typeof FILTERS)[number]["key"];
+
+export default async function MatchesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ f?: string }>;
+}) {
+  const { f } = await searchParams;
+  const filter: FilterKey = (FILTERS.find((x) => x.key === f)?.key ?? "all") as FilterKey;
+
   const [matches, oddsMap] = await Promise.all([getWorldCupMatches(), getLatestWhlOdds()]);
   matches.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+  const todayKey = dayKeyFmt.format(new Date());
+
+  const filtered = matches.filter((m) => {
+    if (filter === "today") return dayKeyFmt.format(new Date(m.utcDate)) === todayKey;
+    if (filter === "group") return m.stage === "GROUP_STAGE";
+    if (filter === "knockout") return m.stage !== "GROUP_STAGE";
+    return true;
+  });
 
   const byDay = new Map<string, FdMatch[]>();
-  for (const m of matches) {
+  for (const m of filtered) {
     const key = dayKeyFmt.format(new Date(m.utcDate));
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key)!.push(m);
   }
-  const todayKey = dayKeyFmt.format(new Date());
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -168,6 +190,28 @@ export default async function MatchesPage() {
       <p className="mt-1 text-sm text-mut">
         共 {matches.length} 场 · 北京时间 · 比分每分钟更新 · 琥珀色为竞彩官方在售赔率
       </p>
+
+      <div className="mt-5 flex gap-2">
+        {FILTERS.map((x) => (
+          <Link
+            key={x.key}
+            href={x.key === "all" ? "/matches" : `/matches?f=${x.key}`}
+            className={`rounded-full px-4 py-1.5 text-sm transition ${
+              filter === x.key
+                ? "bg-neon font-medium text-white"
+                : "bg-surface text-mut ring-1 ring-line hover:ring-neon/40"
+            }`}
+          >
+            {x.label}
+          </Link>
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="card mt-6 border-dashed px-4 py-12 text-center text-sm text-mut">
+          {filter === "today" ? "今天没有比赛，看看其他日期吧。" : "暂无符合条件的比赛。"}
+        </div>
+      )}
 
       <div className="mt-6 space-y-6">
         {[...byDay.entries()].map(([day, dayMatches]) => {

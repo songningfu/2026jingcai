@@ -1,30 +1,31 @@
 @import "tailwindcss";
 
-/* ============ 「夜场数据台」设计系统 ============
-   深色球场绿打底 + 荧光绿数据高亮 + 琥珀色赔率
-   数字一律用 font-num（Barlow Condensed，记分牌感） */
+/* ============ 「简白数据纸」设计系统 ============
+   纯净白色打底 + 沉稳绿数据色 + 暗琥珀赔率色
+   数字一律用 font-num（Barlow Condensed，记分牌感）
+   注：语义令牌名保持不变（pitch/surface/...），换肤只改这里的值 */
 
 :root {
-  --background: #0a100d;
-  --foreground: #e9f3ec;
+  --background: #f6f8f7;
+  --foreground: #182420;
 }
 
 @theme inline {
   /* 表面 */
-  --color-pitch: #0a100d; /* 页面底 */
-  --color-surface: #101914; /* 卡片 */
-  --color-raised: #17241d; /* 卡片内强调块 */
-  --color-line: #1f3026; /* 描边 */
-  --color-line-strong: #2c4435;
+  --color-pitch: #f6f8f7; /* 页面底 */
+  --color-surface: #ffffff; /* 卡片 */
+  --color-raised: #f0f4f2; /* 卡片内强调块 */
+  --color-line: #e5eae7; /* 描边 */
+  --color-line-strong: #cdd8d2;
   /* 文字 */
-  --color-ink: #e9f3ec;
-  --color-mut: #93aa9c;
-  --color-faint: #5d7367;
+  --color-ink: #182420;
+  --color-mut: #5c6b63;
+  --color-faint: #98a69e;
   /* 主题色 */
-  --color-neon: #41e296; /* 荧光绿：数据/概率/品牌 */
-  --color-neon-dim: #2da06c;
-  --color-amber: #f3b73c; /* 琥珀：赔率/付费 */
-  --color-live: #ff6b5e; /* 进行中 */
+  --color-neon: #0c9d68; /* 数据绿：概率/品牌 */
+  --color-neon-dim: #0a7d54;
+  --color-amber: #b97a0a; /* 暗琥珀：赔率/付费 */
+  --color-live: #e0453a; /* 进行中 */
   /* 字体 */
   --font-num: var(--font-barlow), "DIN Alternate", sans-serif;
   --color-background: var(--background);
@@ -33,7 +34,7 @@
 
 body {
   background:
-    radial-gradient(1200px 500px at 50% -150px, rgba(65, 226, 150, 0.07), transparent 70%),
+    radial-gradient(1100px 420px at 50% -160px, rgba(12, 157, 104, 0.05), transparent 70%),
     var(--background);
   color: var(--foreground);
   font-family:
@@ -53,6 +54,7 @@ body {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: 1rem;
+  box-shadow: 0 1px 2px rgba(24, 36, 32, 0.04);
 }
 
 .chip {
