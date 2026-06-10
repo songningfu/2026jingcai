@@ -1,19 +1,152 @@
 @import "tailwindcss";
 
+/* ============ 「夜场数据台」设计系统 ============
+   深色球场绿打底 + 荧光绿数据高亮 + 琥珀色赔率
+   数字一律用 font-num（Barlow Condensed，记分牌感） */
+
 :root {
-  --background: #f7f8f7;
-  --foreground: #18211c;
+  --background: #0a100d;
+  --foreground: #e9f3ec;
 }
 
 @theme inline {
+  /* 表面 */
+  --color-pitch: #0a100d; /* 页面底 */
+  --color-surface: #101914; /* 卡片 */
+  --color-raised: #17241d; /* 卡片内强调块 */
+  --color-line: #1f3026; /* 描边 */
+  --color-line-strong: #2c4435;
+  /* 文字 */
+  --color-ink: #e9f3ec;
+  --color-mut: #93aa9c;
+  --color-faint: #5d7367;
+  /* 主题色 */
+  --color-neon: #41e296; /* 荧光绿：数据/概率/品牌 */
+  --color-neon-dim: #2da06c;
+  --color-amber: #f3b73c; /* 琥珀：赔率/付费 */
+  --color-live: #ff6b5e; /* 进行中 */
+  /* 字体 */
+  --font-num: var(--font-barlow), "DIN Alternate", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(1200px 500px at 50% -150px, rgba(65, 226, 150, 0.07), transparent 70%),
+    var(--background);
   color: var(--foreground);
   font-family:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+/* 数字（赔率/比分/概率）统一记分牌字体 */
+.font-num {
+  font-family: var(--font-num);
+  letter-spacing: 0.02em;
+}
+
+/* ============ 复用组件类 ============ */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  background: var(--color-raised);
+  color: var(--color-mut);
+  border: 1px solid var(--color-line);
+}
+
+/* ============ 动画 ============ */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anim-fade-up {
+  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+.anim-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* AI 分析中：扫描线 */
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(420%);
+  }
+}
+.anim-scan {
+  animation: scanline 1.6s linear infinite;
+}
+
+/* AI 分析中：思考点 */
+@keyframes think {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+.anim-think {
+  animation: think 1.2s ease-in-out infinite;
+}
+
+/* 概率条生长 */
+@keyframes grow-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.anim-grow-bar {
+  transform-origin: left;
+  animation: grow-bar 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 隐藏滚动条但保留滚动 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

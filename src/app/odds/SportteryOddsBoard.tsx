@@ -70,26 +70,26 @@ function MatchOdds({
   onToggle: (match: SportteryMatch, row: SportteryOddsRow, outcome: SportteryOutcome) => void;
 }) {
   return (
-    <article className="border-t border-neutral-200 bg-white">
-      <div className="grid grid-cols-[5.5rem_1fr] gap-2 px-3 py-3 sm:grid-cols-[7rem_1fr]">
+    <article className="border-t border-line">
+      <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-4 sm:grid-cols-[6.5rem_1fr]">
         <div>
-          <div className="text-sm font-medium text-neutral-700">{match.league}</div>
-          <div className="mt-2 rounded-lg bg-neutral-50 px-2 py-3 text-center">
-            <div className="text-sm text-neutral-600">{match.matchNum}</div>
-            <div className="mt-1 text-sm tabular-nums text-neutral-500">
+          <div className="text-xs font-medium text-mut">{match.league}</div>
+          <div className="mt-2 rounded-lg bg-raised px-2 py-3 text-center">
+            <div className="font-num text-sm font-semibold text-ink">{match.matchNum}</div>
+            <div className="font-num mt-1 text-xs tabular-nums text-faint">
               {match.matchDate.slice(5)} {match.matchTime.slice(0, 5)}
             </div>
           </div>
         </div>
 
         <div className="min-w-0">
-          <div className="mb-2 truncate text-center text-lg font-semibold text-neutral-900">
-            {match.home} <span className="px-2 text-neutral-500">VS</span> {match.away}
+          <div className="mb-2 truncate text-center text-base font-semibold text-ink">
+            {match.home} <span className="px-2 text-faint">VS</span> {match.away}
           </div>
           <div className="space-y-2">
             {match.rows.map((row) => (
-              <div key={row.poolCode} className="grid grid-cols-[2.8rem_1fr] gap-2">
-                <div className="flex items-center justify-center text-lg font-semibold text-red-500">
+              <div key={row.poolCode} className="grid grid-cols-[2.6rem_1fr] gap-2">
+                <div className="font-num flex items-center justify-center text-base font-semibold text-amber">
                   [{row.handicapLabel}]
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -105,20 +105,20 @@ function MatchOdds({
                         onClick={() => onToggle(match, row, outcome)}
                         className={`min-h-16 rounded-lg border px-1 py-1.5 text-center transition ${
                           selected
-                            ? "border-red-500 bg-red-50 text-red-600 shadow-sm"
+                            ? "border-neon bg-neon/15 text-neon shadow-[0_0_12px_rgba(65,226,150,0.15)]"
                             : disabled
-                              ? "border-neutral-100 bg-neutral-50 text-neutral-300"
-                              : "border-neutral-200 bg-white text-neutral-700 hover:border-red-300"
+                              ? "border-line/50 bg-surface text-faint/50"
+                              : "border-line bg-raised text-ink hover:border-neon/50"
                         }`}
                         aria-pressed={selected}
                       >
-                        <span className="block text-base font-bold">{outcome.label}</span>
-                        <span className="block text-sm tabular-nums">
+                        <span className="block text-sm font-medium">{outcome.label}</span>
+                        <span className="font-num block text-base font-bold tabular-nums text-amber">
                           {outcome.odd?.toFixed(2) ?? "--"}
                         </span>
                         <span
-                          className={`block text-[11px] tabular-nums ${
-                            selected ? "text-red-500" : "text-sky-600"
+                          className={`font-num block text-[11px] tabular-nums ${
+                            selected ? "text-neon" : "text-neon/70"
                           }`}
                         >
                           {pct(outcome.probability)}
@@ -130,9 +130,11 @@ function MatchOdds({
               </div>
             ))}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-neutral-400">
+          <div className="mt-2 flex items-center justify-between text-xs text-faint">
             <span>{match.status === "Selling" ? "官方在售赔率" : match.status || "官方赔率"}</span>
-            <span>{match.rows[0]?.updateAt ? `更新 ${match.rows[0].updateAt}` : ""}</span>
+            <span className="font-num">
+              {match.rows[0]?.updateAt ? `更新 ${match.rows[0].updateAt}` : ""}
+            </span>
           </div>
         </div>
       </div>
@@ -216,77 +218,48 @@ export default function SportteryOddsBoard({
   };
 
   return (
-    <div className={embedded ? "pb-64" : "min-h-screen bg-neutral-100 pb-64"}>
-      {!embedded && (
-      <div className="sticky top-14 z-10 border-b border-red-200 bg-white">
-        <div className="mx-auto max-w-4xl px-3 py-3">
-          <div className="flex gap-2 overflow-x-auto">
-            {["胜平负/让球", "比分", "总进球数", "半全场", "混合过关"].map((tab) => (
-              <span
-                key={tab}
-                className={`shrink-0 rounded-lg border px-4 py-2 text-sm ${
-                  tab === "混合过关"
-                    ? "border-red-400 bg-red-50 text-red-600"
-                    : "border-neutral-200 bg-white text-neutral-500"
-                }`}
-              >
-                {tab}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-      )}
-
+    <div className="pb-64">
       <main className="mx-auto max-w-4xl">
-        <section className={embedded ? "rounded-xl border border-neutral-200 bg-white px-4 py-4" : "bg-white px-4 py-4"}>
-          <h2 className="text-xl font-bold text-neutral-900">体彩官方赔率</h2>
-          <p className="mt-1 text-sm leading-relaxed text-neutral-500">
-            数据来自中国竞彩网公开足球计算器。百分比为赔率反推的归一化概率，仅作信息换算。
+        <section className="card px-5 py-4">
+          <h2 className="text-lg font-bold text-ink">体彩官方赔率</h2>
+          <p className="mt-1 text-sm leading-relaxed text-mut">
+            数据来自中国竞彩网公开足球计算器，自动载入在售场次。点击任意结果即可组合串关，
+            百分比为赔率反推的归一化概率，仅作信息换算。
           </p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500">
-            <span className="rounded-full bg-neutral-100 px-2.5 py-1">
-              来源：{payload.source}
-            </span>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="chip">来源：{payload.source}</span>
             <a
               href={payload.sourceUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-full bg-neutral-100 px-2.5 py-1 text-sky-700"
+              className="chip text-neon transition hover:border-neon/40"
             >
-              官方页面
+              官方页面 ↗
             </a>
-            <span className="rounded-full bg-neutral-100 px-2.5 py-1">
-              更新时间：{payload.lastUpdated ?? "以官方页面为准"}
-            </span>
+            <span className="chip font-num">更新：{payload.lastUpdated ?? "以官方页面为准"}</span>
           </div>
           {payload.error && (
-            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <p className="mt-3 rounded-lg border border-amber/20 bg-amber/5 px-3 py-2 text-xs text-amber/80">
               {payload.error}
             </p>
           )}
         </section>
 
         {payload.days.length === 0 ? (
-          <div className="m-4 rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-12 text-center text-sm text-neutral-500">
+          <div className="card mt-3 border-dashed px-4 py-12 text-center text-sm text-mut">
             暂时没有读取到官方赔率。可以稍后刷新，或检查官方计算器页面是否正常开放。
           </div>
         ) : (
           payload.days.map((day) => (
-            <section
-              key={day.businessDate}
-              className={`mt-3 overflow-hidden bg-white ${embedded ? "rounded-xl border border-neutral-200" : ""}`}
-            >
-              <div className="flex items-center justify-between border-y border-neutral-200 px-4 py-3">
-                <div className="text-sm font-medium text-neutral-700">
+            <section key={day.businessDate} className="card mt-3 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="text-sm font-medium text-ink">
                   {formatBusinessDate(day.businessDate)}
-                  <span className="ml-2 font-normal text-neutral-500">
-                    共{day.matches.length}场比赛
-                  </span>
+                  <span className="ml-2 font-normal text-faint">共{day.matches.length}场比赛</span>
                 </div>
-                <span className="inline-flex items-center gap-1 text-sm text-red-500">
-                  <span className="h-3 w-3 rounded-full bg-red-500" />
-                  仅展示
+                <span className="inline-flex items-center gap-1.5 text-xs text-neon">
+                  <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
+                  仅展示 · 不可下单
                 </span>
               </div>
               {day.matches.map((match) => (
@@ -301,24 +274,27 @@ export default function SportteryOddsBoard({
           ))
         )}
 
-        <p className="m-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+        <p className="mt-4 rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">
           {DISCLAIMER}
           本页仅展示官方公开赔率并提供模拟金额与概率换算，不提供下单、出票、代购或任何购彩建议。
         </p>
       </main>
 
-      <aside className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+      {/* 底部模拟单 */}
+      <aside
+        className={`${embedded ? "" : ""}fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 shadow-[0_-12px_32px_rgba(0,0,0,0.45)] backdrop-blur`}
+      >
         {showDetails && selected.length > 0 && (
-          <div className="mx-auto max-h-40 max-w-4xl overflow-auto border-b border-neutral-100 px-4 py-3 text-sm">
-            <div className="mb-2 font-medium text-neutral-700">已选明细</div>
+          <div className="mx-auto max-h-40 max-w-4xl overflow-auto border-b border-line px-4 py-3 text-sm">
+            <div className="mb-2 font-medium text-ink">已选明细</div>
             <div className="space-y-1">
               {selected.map((item) => (
                 <div key={item.key} className="flex items-center justify-between gap-3 text-xs">
-                  <span className="truncate text-neutral-600">
+                  <span className="truncate text-mut">
                     {item.matchNum} {item.matchLabel} · {item.poolName}[{item.handicapLabel}] ·{" "}
                     {item.outcomeLabel}
                   </span>
-                  <span className="shrink-0 tabular-nums text-red-500">
+                  <span className="font-num shrink-0 tabular-nums text-amber">
                     {item.odd.toFixed(2)} / {pct(item.probability)}
                   </span>
                 </div>
@@ -327,25 +303,25 @@ export default function SportteryOddsBoard({
           </div>
         )}
 
-        <div className="mx-auto grid max-w-4xl grid-cols-[5.5rem_1fr_5rem] gap-3 px-4 py-3 sm:grid-cols-[7rem_1fr_7rem]">
+        <div className="mx-auto grid max-w-4xl grid-cols-[5rem_1fr_4.5rem] gap-3 px-4 py-3 sm:grid-cols-[6.5rem_1fr_6.5rem]">
           <button
             type="button"
             onClick={() => setShowDetails((value) => !value)}
-            className="relative rounded-lg border border-neutral-200 py-3 text-sm text-neutral-700"
+            className="relative rounded-lg border border-line py-3 text-sm text-ink"
           >
-            <span className="absolute -left-3 -top-3 flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-base font-semibold text-white">
+            <span className="font-num absolute -left-2.5 -top-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-neon text-base font-bold text-pitch">
               {selected.length}
             </span>
             已选
           </button>
 
-          <label className="flex items-center justify-center gap-2 rounded-lg border border-neutral-200 px-3 text-sm text-neutral-600">
+          <label className="flex items-center justify-center gap-2 rounded-lg border border-line px-3 text-sm text-mut">
             过关选择
             <select
               value={effectivePass}
               disabled={passOptions.length === 0}
               onChange={(event) => setPassM(Number(event.target.value))}
-              className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-red-500 outline-none disabled:text-neutral-300"
+              className="rounded-md border border-line bg-raised px-2 py-1 text-neon outline-none disabled:text-faint"
             >
               {passOptions.length === 0 ? (
                 <option value={1}>请选择</option>
@@ -362,15 +338,15 @@ export default function SportteryOddsBoard({
           <button
             type="button"
             onClick={() => setSelections(new Map())}
-            className="rounded-lg border border-neutral-200 py-3 text-sm text-neutral-500 disabled:text-neutral-300"
+            className="rounded-lg border border-line py-3 text-sm text-mut disabled:text-faint/50"
             disabled={selected.length === 0}
           >
             清空
           </button>
         </div>
 
-        <div className="mx-auto grid max-w-4xl grid-cols-[5.5rem_1fr_7rem] gap-3 px-4 pb-4 sm:grid-cols-[7rem_1fr_8rem]">
-          <label className="rounded-lg border border-neutral-200 px-2 py-2 text-center text-sm text-neutral-600">
+        <div className="mx-auto grid max-w-4xl grid-cols-[5rem_1fr_6rem] gap-3 px-4 pb-4 sm:grid-cols-[6.5rem_1fr_7rem]">
+          <label className="rounded-lg border border-line px-2 py-2 text-center text-sm text-mut">
             <input
               value={multiple}
               min={1}
@@ -380,28 +356,30 @@ export default function SportteryOddsBoard({
                 const next = Math.max(1, Math.min(50, Number(event.target.value) || 1));
                 setMultiple(next);
               }}
-              className="w-10 text-center text-lg font-semibold text-red-500 outline-none"
+              className="font-num w-10 bg-transparent text-center text-lg font-semibold text-neon outline-none"
             />
             倍
           </label>
 
-          <div className="grid content-center gap-1 text-sm text-neutral-500">
+          <div className="grid content-center gap-1 text-sm text-mut">
             <div>
               模拟金额：
-              <span className="font-semibold tabular-nums text-red-500">
+              <span className="font-num font-semibold tabular-nums text-amber">
                 {money(simulatedAmount)}
               </span>
               元
-              <span className="ml-2 text-xs text-neutral-400">每注2元 · {ticketCount}注</span>
+              <span className="font-num ml-2 text-xs text-faint">每注2元 · {ticketCount}注</span>
             </div>
             <div>
               理论最高金额：
-              <span className="font-semibold tabular-nums text-red-500">{money(maxReturn)}</span>
+              <span className="font-num font-semibold tabular-nums text-amber">
+                {money(maxReturn)}
+              </span>
               元
             </div>
             <div>
               命中≥{effectivePass}场概率估算：
-              <span className="font-semibold tabular-nums text-sky-600">
+              <span className="font-num font-semibold tabular-nums text-neon">
                 {pct(hitProbability)}
               </span>
             </div>
@@ -410,7 +388,7 @@ export default function SportteryOddsBoard({
           <button
             type="button"
             onClick={() => setShowDetails(true)}
-            className="rounded-lg bg-red-500 px-2 py-3 text-sm font-medium text-white disabled:bg-neutral-200"
+            className="rounded-lg bg-neon px-2 py-3 text-sm font-semibold text-pitch transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
             disabled={selected.length === 0}
           >
             查看明细

@@ -6,7 +6,7 @@ import "server-only";
  * 过滤不通过的字段会被中性文案替换；命中过多时整体重生成由调用方决定。
  */
 import { chatJSON } from "./ai";
-import { DISCLAIMER } from "./odds";
+import { DISCLAIMER, impliedProbabilities } from "./odds";
 import { filterContent } from "./banned-terms";
 import { supabaseAdmin } from "./supabase";
 
@@ -38,6 +38,7 @@ JSON schema：
   "odds_reading": "只描述竞彩官方赔率结构、赔率高低差异与价格分布（标注为市场价格信息，非建议；无赔率数据时仅说明数据暂缺；不得写哪方更可能或概率较高）"
 }
 每个字段为 80-200 字的中文段落。资料不足的字段基于球队公开背景常识谨慎概述，并注明"赛前详细数据暂缺"。
+data_insight 与 odds_reading 的每个字段都必须引用我提供数据中的至少一个具体数字（如平均年龄、球员号码、效力俱乐部数量、赔率值、归一化概率、返还率），不要写空泛的形容词堆砌。
 
 【数据红线】
 - odds_reading 只能解读我提供的"竞彩赔率"数据；未提供时只写"竞彩赔率数据暂未更新"，禁止引用、估计或转述任何其他机构（尤其是境外博彩公司）的赔率或盘口信息。
@@ -188,6 +189,33 @@ export async function generatePreviewReport(matchId: number): Promise<{ hits: st
     .order("captured_at", { ascending: false })
     .limit(20);
 
+  // 预计算数据摘要：归一化概率 + 名单聚合，让 AI 引用具体数字而非空泛形容
+  const whlLatest = ["主胜", "平", "客胜"].map((o) =>
+    (odds ?? []).find((r) => r.play_type === "whl" && r.outcome === o),
+  );
+  const implied = whlLatest.every(Boolean)
+    ? impliedProbabilities(whlLatest.map((r) => Number(r!.odd)))
+    : null;
+  const summarizeSquad = (teamId: number | undefined) => {
+    if (!teamId) return null;
+    const rows = squadRows.filter((r) => r.team_id === teamId);
+    if (rows.length === 0) return null;
+    const ages = rows
+      .map((r) => {
+        const dob = (r as { date_of_birth?: string | null }).date_of_birth;
+        if (!dob) return null;
+        const t = new Date(dob).getTime();
+        return Number.isNaN(t) ? null : (Date.now() - t) / (365.25 * 24 * 3600_000);
+      })
+      .filter((a): a is number => a !== null);
+    const clubs = new Set(rows.map((r) => (r as { club?: string | null }).club).filter(Boolean));
+    return {
+      名单人数: rows.length,
+      平均年龄: ages.length ? Number((ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1)) : "未知",
+      效力俱乐部数量: clubs.size || "未知",
+    };
+  };
+
   const userPrompt = `数据如下：${JSON.stringify(
     {
       赛事: "2026 FIFA 世界杯",
@@ -206,6 +234,20 @@ export async function generatePreviewReport(matchId: number): Promise<{ hits: st
             }
           : "暂无（squads 数据尚未导入）",
       竞彩赔率: odds && odds.length > 0 ? odds : "暂无（赔率数据尚未接入）",
+      数据摘要: {
+        胜平负归一化概率:
+          implied
+            ? {
+                主胜: `${(implied.probs[0] * 100).toFixed(1)}%`,
+                平: `${(implied.probs[1] * 100).toFixed(1)}%`,
+                客胜: `${(implied.probs[2] * 100).toFixed(1)}%`,
+                理论返还率: `${(implied.returnRate * 100).toFixed(1)}%`,
+                说明: "由竞彩官方赔率反推并归一化，含市场情绪，非真实胜率",
+              }
+            : "暂无",
+        主队名单统计: summarizeSquad(home?.id) ?? "暂无",
+        客队名单统计: summarizeSquad(away?.id) ?? "暂无",
+      },
     },
     null,
     2,

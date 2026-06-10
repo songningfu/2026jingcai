@@ -46,15 +46,15 @@ function SingleMatchTool() {
 
   return (
     <section className="space-y-4">
-      <p className="text-sm text-neutral-600">
+      <p className="text-sm text-mut">
         输入某一玩法下所有结果的十进制赔率（如胜平负三项），换算为隐含概率。
         归一化概率已去除「水位」，由赔率反推、含市场情绪，
         <strong>非真实胜率</strong>。
       </p>
 
-      <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      <div className="overflow-hidden card">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-neutral-500">
+          <thead className="bg-raised text-left text-mut">
             <tr>
               <th className="px-4 py-2 font-medium">结果</th>
               <th className="px-4 py-2 font-medium">赔率</th>
@@ -65,12 +65,12 @@ function SingleMatchTool() {
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} className="border-t border-neutral-100">
+              <tr key={i} className="border-t border-line">
                 <td className="px-4 py-2">
                   <input
                     value={row.label}
                     onChange={(e) => update(i, "label", e.target.value)}
-                    className="w-24 rounded-md border border-neutral-200 px-2 py-1 focus:border-emerald-500 focus:outline-none"
+                    className="w-24 rounded-md border border-line bg-raised px-2 py-1 text-ink focus:border-neon focus:outline-none"
                   />
                 </td>
                 <td className="px-4 py-2">
@@ -79,20 +79,20 @@ function SingleMatchTool() {
                     onChange={(e) => update(i, "odd", e.target.value)}
                     placeholder="如 2.05"
                     inputMode="decimal"
-                    className="w-24 rounded-md border border-neutral-200 px-2 py-1 focus:border-emerald-500 focus:outline-none"
+                    className="w-24 rounded-md border border-line bg-raised px-2 py-1 text-ink focus:border-neon focus:outline-none"
                   />
                 </td>
-                <td className="px-4 py-2 tabular-nums text-neutral-600">
+                <td className="px-4 py-2 tabular-nums text-mut">
                   {result ? pct(result.raw[i]) : "—"}
                 </td>
-                <td className="px-4 py-2 tabular-nums font-medium text-emerald-700">
+                <td className="px-4 py-2 tabular-nums font-medium text-neon">
                   {result ? pct(result.probs[i]) : "—"}
                 </td>
                 <td className="px-2 py-2">
                   {rows.length > 2 && (
                     <button
                       onClick={() => setRows(rows.filter((_, idx) => idx !== i))}
-                      className="text-neutral-400 hover:text-red-500"
+                      className="text-faint hover:text-red-500"
                       aria-label="删除该结果"
                     >
                       ✕
@@ -108,14 +108,14 @@ function SingleMatchTool() {
       <div className="flex items-center justify-between">
         <button
           onClick={() => setRows([...rows, { label: `结果${rows.length + 1}`, odd: "" }])}
-          className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
+          className="rounded-md border border-neon/30 px-3 py-1.5 text-sm text-neon hover:bg-neon/10"
         >
           + 添加结果（比分 / 总进球等多结果玩法）
         </button>
         {result && (
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-mut">
             该玩法理论返还率：
-            <span className="font-semibold text-emerald-700">{pct(result.returnRate)}</span>
+            <span className="font-semibold text-neon">{pct(result.returnRate)}</span>
           </p>
         )}
       </div>
@@ -203,7 +203,7 @@ function ParlayTool() {
 
   return (
     <section className="space-y-5">
-      <p className="text-sm text-neutral-600">
+      <p className="text-sm text-mut">
         每场填入胜平负三项赔率并选定一个结果，再勾选过关方式，
         实时计算注数、总投入与理论全中概率。
       </p>
@@ -215,18 +215,18 @@ function ParlayTool() {
             ? impliedProbabilities(oddsArr as number[])
             : null;
           return (
-            <div key={match.id} className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div key={match.id} className="card p-4">
               <div className="mb-3 flex items-center justify-between">
                 <input
                   value={match.name}
                   onChange={(e) => updateMatch(match.id, { name: e.target.value })}
                   placeholder={`第 ${mi + 1} 场（可填对阵，如 阿根廷 vs 法国）`}
-                  className="w-64 rounded-md border border-neutral-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none"
+                  className="w-64 rounded-md border border-line bg-raised px-2 py-1 text-sm text-ink focus:border-neon focus:outline-none"
                 />
                 {matches.length > 1 && (
                   <button
                     onClick={() => setMatches(matches.filter((m) => m.id !== match.id))}
-                    className="text-sm text-neutral-400 hover:text-red-500"
+                    className="text-sm text-faint hover:text-red-500"
                   >
                     移除
                   </button>
@@ -240,8 +240,8 @@ function ParlayTool() {
                       key={o}
                       className={`cursor-pointer rounded-lg border p-3 text-center transition ${
                         picked
-                          ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600"
-                          : "border-neutral-200 hover:border-emerald-300"
+                          ? "border-neon bg-neon/10 ring-1 ring-neon"
+                          : "border-line hover:border-neon/40"
                       }`}
                     >
                       <input
@@ -251,7 +251,7 @@ function ParlayTool() {
                         onChange={() => updateMatch(match.id, { pick: o })}
                         className="sr-only"
                       />
-                      <div className="text-xs text-neutral-500">{OUTCOME_LABELS[o]}</div>
+                      <div className="text-xs text-mut">{OUTCOME_LABELS[o]}</div>
                       <input
                         value={match.odds[o]}
                         onChange={(e) =>
@@ -262,9 +262,9 @@ function ParlayTool() {
                         onClick={(e) => e.stopPropagation()}
                         placeholder="赔率"
                         inputMode="decimal"
-                        className="mt-1 w-full rounded-md border border-neutral-200 px-2 py-1 text-center text-sm focus:border-emerald-500 focus:outline-none"
+                        className="mt-1 w-full rounded-md border border-line bg-raised px-2 py-1 text-center text-sm text-ink focus:border-neon focus:outline-none"
                       />
-                      <div className="mt-1 text-xs tabular-nums text-emerald-700">
+                      <div className="mt-1 text-xs tabular-nums text-neon">
                         {implied ? pct(implied.probs[oi]) : "—"}
                       </div>
                     </label>
@@ -278,18 +278,18 @@ function ParlayTool() {
 
       <button
         onClick={() => setMatches([...matches, emptyMatch(nextId++)])}
-        className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
+        className="rounded-md border border-neon/30 px-3 py-1.5 text-sm text-neon hover:bg-neon/10"
       >
         + 添加一场
       </button>
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-          <span className="text-sm font-medium text-neutral-700">
+          <span className="text-sm font-medium text-ink">
             过关方式（已完整填写 {n} 场）：
           </span>
           {availableWays.length === 0 && (
-            <span className="text-sm text-neutral-400">先在上方完整填写赔率并选定结果</span>
+            <span className="text-sm text-faint">先在上方完整填写赔率并选定结果</span>
           )}
           {availableWays.map((m) => (
             <label key={m} className="flex items-center gap-1.5 text-sm">
@@ -297,10 +297,10 @@ function ParlayTool() {
                 type="checkbox"
                 checked={selectedWays.has(m)}
                 onChange={() => toggleWay(m)}
-                className="accent-emerald-600"
+                className="accent-[#41e296]"
               />
               {m === 1 ? "单关" : `${m} 串 1`}
-              <span className="text-xs text-neutral-400">({combinations(n, m)} 注)</span>
+              <span className="text-xs text-faint">({combinations(n, m)} 注)</span>
             </label>
           ))}
           <label className="ml-auto flex items-center gap-2 text-sm">
@@ -309,7 +309,7 @@ function ParlayTool() {
               value={stakeStr}
               onChange={(e) => setStakeStr(e.target.value)}
               inputMode="decimal"
-              className="w-16 rounded-md border border-neutral-200 px-2 py-1 text-center focus:border-emerald-500 focus:outline-none"
+              className="w-16 rounded-md border border-line bg-raised px-2 py-1 text-center text-ink focus:border-neon focus:outline-none"
             />
             元
           </label>
@@ -317,8 +317,8 @@ function ParlayTool() {
 
         {wayRows.length > 0 && (
           <table className="w-full text-sm">
-            <thead className="text-left text-neutral-500">
-              <tr className="border-b border-neutral-100">
+            <thead className="text-left text-mut">
+              <tr className="border-b border-line">
                 <th className="py-2 font-medium">方式</th>
                 <th className="py-2 font-medium">注数</th>
                 <th className="py-2 font-medium">投入</th>
@@ -327,7 +327,7 @@ function ParlayTool() {
             </thead>
             <tbody className="tabular-nums">
               {wayRows.map((r) => (
-                <tr key={r.m} className="border-b border-neutral-50">
+                <tr key={r.m} className="border-b border-line">
                   <td className="py-2">{r.m === 1 ? "单关" : `${r.m} 串 1`}</td>
                   <td className="py-2">{r.count}</td>
                   <td className="py-2">{money(r.cost)}</td>
@@ -345,16 +345,16 @@ function ParlayTool() {
         )}
 
         {n >= 2 && (
-          <div className="mt-3 flex flex-wrap gap-x-8 gap-y-1 rounded-lg bg-neutral-50 px-4 py-3 text-sm">
+          <div className="mt-3 flex flex-wrap gap-x-8 gap-y-1 rounded-lg bg-raised px-4 py-3 text-sm">
             <span>
               {n} 场串关总赔率：
-              <strong className="tabular-nums text-emerald-700">
+              <strong className="tabular-nums text-neon">
                 {parlayOdds(pickedOdds).toFixed(2)}
               </strong>
             </span>
             <span>
               理论全中概率：
-              <strong className="tabular-nums text-emerald-700">
+              <strong className="tabular-nums text-neon">
                 {pct(parlayProbability(pickedProbs))}
               </strong>
             </span>
@@ -382,8 +382,8 @@ export default function Calculator({
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <h1 className="text-2xl font-bold">概率工具</h1>
-      <p className="mt-1 text-sm text-neutral-500">
+      <h1 className="text-2xl font-bold text-ink">概率工具</h1>
+      <p className="mt-1 text-sm text-mut">
         官方赔率、手动换算和金额模拟放在一个体系里 — 只做数学，不做建议。
       </p>
 
@@ -394,8 +394,8 @@ export default function Calculator({
             onClick={() => setTab(t.key)}
             className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition ${
               tab === t.key
-                ? "bg-emerald-700 text-white"
-                : "bg-white text-neutral-600 ring-1 ring-neutral-200 hover:ring-emerald-300"
+                ? "bg-neon font-medium text-pitch"
+                : "bg-surface text-mut ring-1 ring-line hover:ring-neon/40"
             }`}
           >
             {t.label}
@@ -415,7 +415,7 @@ export default function Calculator({
 
       {/* 第 0 章第 3 条：输出旁固定展示，不得移除 */}
       {tab !== "official" && (
-        <p className="mt-8 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+        <p className="mt-8 rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">
           {DISCLAIMER}
         </p>
       )}
