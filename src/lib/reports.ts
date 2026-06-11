@@ -95,15 +95,45 @@ function sanitizeReport(report: PreviewReport): { report: PreviewReport; hits: s
   };
 }
 
+/**
+ * 从模型输出里提取第一个「括号配对完整」的 JSON 对象。
+ * 正确处理字符串字面量内的花括号与转义，避免被字符串里的 } 或
+ * 模型多吐的第二个对象/尾部垃圾干扰。
+ */
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function parsePreviewReport(raw: string): PreviewReport {
+  // 去掉可能的 markdown 代码围栏
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "");
   try {
-    return JSON.parse(raw) as PreviewReport;
+    return JSON.parse(cleaned) as PreviewReport;
   } catch (firstError) {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start >= 0 && end > start) {
+    const candidate = extractFirstJsonObject(cleaned);
+    if (candidate) {
       try {
-        return JSON.parse(raw.slice(start, end + 1)) as PreviewReport;
+        return JSON.parse(candidate) as PreviewReport;
       } catch {
         // Fall through to the original error with a compact preview for debugging.
       }
@@ -280,7 +310,11 @@ export async function generatePreviewReport(
 export async function generateUpcomingReports(
   hoursAhead = 48,
   limit = 5,
-): Promise<{ generated: number[]; hits: Record<number, string[]> }> {
+): Promise<{
+  generated: number[];
+  failed: Record<number, string>;
+  hits: Record<number, string[]>;
+}> {
   const db = supabaseAdmin();
   const now = new Date();
   const until = new Date(now.getTime() + hoursAhead * 3600_000);
@@ -299,11 +333,26 @@ export async function generateUpcomingReports(
     .slice(0, limit);
 
   const generated: number[] = [];
+  const failed: Record<number, string> = {};
   const hits: Record<number, string[]> = {};
+  // 单场失败不影响其余：逐场容错，最多重试一次（应对 AI 偶发的 JSON 异常）
   for (const m of pending) {
-    const r = await generatePreviewReport(m.id);
-    generated.push(m.id);
-    if (r.hits.length) hits[m.id] = r.hits;
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await generatePreviewReport(m.id);
+        generated.push(m.id);
+        if (r.hits.length) hits[m.id] = r.hits;
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr) {
+      failed[m.id] = lastErr instanceof Error ? lastErr.message : String(lastErr);
+      console.error(`[reports] match=${m.id} 生成失败:`, failed[m.id]);
+    }
   }
-  return { generated, hits };
+  return { generated, failed, hits };
 }
