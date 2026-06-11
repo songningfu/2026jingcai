@@ -90,7 +90,7 @@ curl "http://localhost:3000/api/reports/generate?secret=$CRON_SECRET&match=<id>"
 
 - 生产：**https://jingcai-beta.vercel.app**（Vercel，项目 songningfus-projects/jingcai，区域 sin1）。
 - 重新部署：`cd jingcai && npx vercel --prod --yes`；改环境变量：`npx vercel env add <NAME> production --force`。
-- **竞彩官网（webapi.sporttery.cn）只认国内 IP**，Vercel 机房访问返回 567。因此 `/api/odds/sync` 不能在云上跑，必须从国内 IP（用户本机 `npm run dev` 后 curl 本地接口）。线上 `/calculator` 已用 `lib/sporttery-fallback.ts` 降级读 Supabase `odds` 表缓存——改赔率展示逻辑时勿破坏这条降级链。
+- **竞彩官网（webapi.sporttery.cn）只认国内 IP**，Vercel 机房访问返回 567/WAF 拦截。架构：阿里云 FC（国内 IP）每 10 分钟抓官网原始 JSON → POST `/api/odds/ingest?secret=` → 我们解析入库。FC 函数代码在 `../aliyun-fc/index.mjs`（只负责抓+转发，逻辑不在云函数里）。抓取需完整请求头（Origin/X-Requested-With/UA）才能过 WAF，见 `lib/sporttery.ts`。`lib/sporttery.ts` 已拆分 `parseSportteryResponse(raw)`（解析）与 `getSportteryFootballOdds()`（抓+解析）；`syncSportteryOdds(payload?)` 可接收已抓取的 payload。线上 `/calculator` 仍有 `lib/sporttery-fallback.ts` 降级读缓存，勿破坏。
 - `/api/sync`（football-data）与 `/api/reports/generate`（DeepSeek）境外可跑，由 cron-job.org 分钟级 / 小时级触发。详见 `../部署指南.md`。
 
 ## 已踩过的坑（别再踩）
