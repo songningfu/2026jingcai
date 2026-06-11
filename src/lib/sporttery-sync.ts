@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSportteryFootballOdds } from "./sporttery";
-import type { SportteryMatch, SportteryOddsRow } from "./sporttery-types";
+import type { SportteryMatch, SportteryOddsPayload, SportteryOddsRow } from "./sporttery-types";
 import { supabaseAdmin } from "./supabase";
 
 const MAX_KICKOFF_DIFF_MS = 3 * 60 * 60 * 1000;
@@ -173,9 +173,15 @@ function toOddsRows(match: MatchedSportteryMatch, fallbackCapturedAt: string): O
   return rows;
 }
 
-export async function syncSportteryOdds(): Promise<SportteryOddsSyncResult> {
-  const payload = await getSportteryFootballOdds();
-  const officialMatches = payload.days.flatMap((day) => day.matches);
+/**
+ * @param payload 可选：传入已抓取的官方赔率（阿里云 FC 从国内 IP 抓后 POST 进来）；
+ *                不传则自行抓取（仅在国内 IP 环境，如本机 dev，才能成功）。
+ */
+export async function syncSportteryOdds(
+  payload?: SportteryOddsPayload,
+): Promise<SportteryOddsSyncResult> {
+  const data = payload ?? (await getSportteryFootballOdds());
+  const officialMatches = data.days.flatMap((day) => day.matches);
   const db = supabaseAdmin();
 
   const { data: dbMatches, error: matchesError } = await db
@@ -233,8 +239,8 @@ export async function syncSportteryOdds(): Promise<SportteryOddsSyncResult> {
   }
 
   return {
-    source: payload.source,
-    sourceLastUpdated: payload.lastUpdated,
+    source: data.source,
+    sourceLastUpdated: data.lastUpdated,
     officialMatches: officialMatches.length,
     matchedMatches: matched.length,
     insertedOdds: oddsRows.length,

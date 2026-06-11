@@ -117,6 +117,30 @@ function mapMatch(raw: RawSportteryMatch): SportteryMatch {
   };
 }
 
+/**
+ * 解析竞彩官网原始响应为面板结构。与「抓取」解耦：
+ * 阿里云 FC（国内 IP）抓到原始 JSON 后 POST 给 /api/odds/ingest，
+ * 由本函数在我们自己的代码里解析，避免逻辑在云函数中重复。
+ */
+export function parseSportteryResponse(data: RawSportteryResponse): SportteryOddsPayload {
+  if (data.errorCode !== "0" || !data.value) {
+    throw new Error(data.errorMessage || "中国竞彩网赔率接口返回为空");
+  }
+  const days: SportteryMatchDay[] = (data.value.matchInfoList ?? [])
+    .map((day) => ({
+      businessDate: day.businessDate,
+      matches: (day.subMatchList ?? []).map(mapMatch).filter((match) => match.rows.length > 0),
+    }))
+    .filter((day) => day.matches.length > 0);
+
+  return {
+    source: "中国竞彩网公开足球计算器",
+    sourceUrl: "https://www.sporttery.cn/jc/jsq/zqhhgg/",
+    lastUpdated: data.value.lastUpdateTime ?? null,
+    days,
+  };
+}
+
 export async function getSportteryFootballOdds(): Promise<SportteryOddsPayload> {
   const res = await fetch(SPORTTERY_ODDS_URL, {
     headers: {
@@ -135,24 +159,7 @@ export async function getSportteryFootballOdds(): Promise<SportteryOddsPayload> 
     throw new Error(`中国竞彩网赔率接口请求失败: ${res.status}`);
   }
 
-  const data = (await res.json()) as RawSportteryResponse;
-  if (data.errorCode !== "0" || !data.value) {
-    throw new Error(data.errorMessage || "中国竞彩网赔率接口返回为空");
-  }
-
-  const days: SportteryMatchDay[] = (data.value.matchInfoList ?? [])
-    .map((day) => ({
-      businessDate: day.businessDate,
-      matches: (day.subMatchList ?? []).map(mapMatch).filter((match) => match.rows.length > 0),
-    }))
-    .filter((day) => day.matches.length > 0);
-
-  return {
-    source: "中国竞彩网公开足球计算器",
-    sourceUrl: "https://www.sporttery.cn/jc/jsq/zqhhgg/",
-    lastUpdated: data.value.lastUpdateTime ?? null,
-    days,
-  };
+  return parseSportteryResponse((await res.json()) as RawSportteryResponse);
 }
 
 export function emptySportteryPayload(error?: string): SportteryOddsPayload {
