@@ -3,6 +3,7 @@
  * 由 /api/sync 触发（本地手动 / 部署后 Vercel Cron 每分钟）。
  */
 import { getWorldCupMatches, type FdMatch, type FdMatchStatus } from "./football-data";
+import { settleFinishedMatches } from "./games";
 import { supabaseAdmin } from "./supabase";
 import { teamNameZh } from "./team-names";
 
@@ -33,7 +34,11 @@ const STAGE_MAP: Record<string, string> = {
   FINAL: "final",
 };
 
-export async function syncMatches(): Promise<{ teams: number; matches: number }> {
+export async function syncMatches(): Promise<{
+  teams: number;
+  matches: number;
+  settledPredictions: number;
+}> {
   const fdMatches = await getWorldCupMatches();
   const db = supabaseAdmin();
 
@@ -82,5 +87,14 @@ export async function syncMatches(): Promise<{ teams: number; matches: number }>
   const { error: matchErr } = await db.from("matches").upsert(rows);
   if (matchErr) throw new Error(`matches upsert 失败: ${matchErr.message}`);
 
-  return { teams: teams.length, matches: rows.length };
+  // 比赛比分更新后，结算已完赛的积分竞猜（幂等，无未结算竞猜时秒返回）
+  let settledPredictions = 0;
+  try {
+    const settle = await settleFinishedMatches();
+    settledPredictions = settle.settled;
+  } catch (e) {
+    console.error("[sync] 竞猜结算失败:", e instanceof Error ? e.message : e);
+  }
+
+  return { teams: teams.length, matches: rows.length, settledPredictions };
 }
