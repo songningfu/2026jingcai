@@ -339,7 +339,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         )}
 
         {/* AI 报告：随时可现场生成 */}
-        <div className="anim-fade-up" style={{ animationDelay: "260ms" }}>
+        <div id="ai" className="scroll-mt-20 anim-fade-up" style={{ animationDelay: "260ms" }}>
           <AiReportPanel
             matchId={match.id}
             initialReport={report}

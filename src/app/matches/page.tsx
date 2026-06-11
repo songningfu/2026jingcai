@@ -7,6 +7,7 @@ import {
   STATUS_LABELS,
   type FdMatch,
 } from "@/lib/football-data";
+import { ANALYSIS_MODES } from "@/lib/analysis-modes";
 import { supabaseAdmin } from "@/lib/supabase";
 import { teamNameZh } from "@/lib/team-names";
 
@@ -92,11 +93,11 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
   const hasOdds = odds && odds.主胜 && odds.平 && odds.客胜;
 
   return (
-    <Link
-      href={`/match/${match.id}`}
-      className="block border-t border-line px-4 py-3 transition hover:bg-raised/60"
-    >
-      <div className="grid grid-cols-[2.6rem_minmax(0,1fr)_3.4rem_minmax(0,1fr)_3.4rem] items-center gap-1.5 text-sm sm:grid-cols-[3.2rem_1fr_5.5rem_1fr_4rem] sm:gap-2">
+    <div className="border-t border-line px-4 py-3">
+      <Link
+        href={`/match/${match.id}`}
+        className="grid grid-cols-[2.6rem_minmax(0,1fr)_3.4rem_minmax(0,1fr)_3.4rem] items-center gap-1.5 text-sm transition sm:grid-cols-[3.2rem_1fr_5.5rem_1fr_4rem] sm:gap-2"
+      >
         <span className="font-num tabular-nums text-mut">
           {timeFmt.format(new Date(match.utcDate))}
         </span>
@@ -133,7 +134,7 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
             {live ? "进行中" : (label ?? STATUS_LABELS[match.status])}
           </span>
         </div>
-      </div>
+      </Link>
       {/* 官方赔率一行（在售场次才有） */}
       {hasOdds && !finished && (
         <div className="mt-2 grid grid-cols-[2.6rem_1fr_3.4rem] items-center gap-1.5 sm:grid-cols-[3.2rem_1fr_4rem] sm:gap-2">
@@ -146,7 +147,27 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
           <span />
         </div>
       )}
-    </Link>
+      {/* 两种 AI 分析模式入口 */}
+      {!finished && (
+        <div className="mt-2.5 flex gap-2">
+          {Object.values(ANALYSIS_MODES).map((mode) => (
+            <Link
+              key={mode.key}
+              href={`/match/${match.id}#ai`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition ${
+                mode.free
+                  ? "bg-neon/10 text-neon hover:bg-neon/15"
+                  : "border border-amber/30 bg-amber/5 text-amber hover:bg-amber/10"
+              }`}
+            >
+              <span aria-hidden>{mode.icon}</span>
+              {mode.name}
+              {!mode.free && <span className="text-[10px] opacity-70">· 订阅</span>}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

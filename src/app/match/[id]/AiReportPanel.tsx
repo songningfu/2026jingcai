@@ -162,14 +162,14 @@ export default function AiReportPanel({
         onClick={start}
         className="card group w-full px-6 py-9 text-center transition hover:border-neon/50 hover:shadow-[0_4px_20px_rgba(12,157,104,0.1)]"
       >
-        <span className="font-num block text-xs font-semibold tracking-[0.3em] text-faint">
-          AI MATCH REPORT
+        <span className="font-num block text-xs font-semibold tracking-[0.3em] text-neon">
+          ⚡ 极速洞察 · FLASH INSIGHT
         </span>
         <span className="mt-2 block text-lg font-semibold text-ink transition group-hover:text-neon">
           ▶ 启动 AI 数据分析
         </span>
         <span className="mt-1 block text-xs text-faint">
-          {report ? "报告已就绪，点击查看" : "现场生成约需 1 分钟"} · 中性分析 · 不构成购彩建议
+          全球顶尖大模型驱动 · {report ? "报告已就绪，点击查看" : "现场生成约需 1 分钟"} · 中性分析，不构成购彩建议
         </span>
       </button>
     );
@@ -260,7 +260,9 @@ export default function AiReportPanel({
         <span className="font-num pointer-events-none absolute -top-3 left-4 text-7xl text-neon/10">
           &ldquo;
         </span>
-        <p className="font-num text-xs font-semibold tracking-[0.25em] text-neon">AI 赛前分析</p>
+        <p className="font-num text-xs font-semibold tracking-[0.25em] text-neon">
+          ⚡ 极速洞察 · AI 赛前分析
+        </p>
         <p className="mt-3 text-[15px] leading-loose text-ink/90">
           <Rich text={report.ai_preview} />
         </p>
@@ -325,7 +327,7 @@ export default function AiReportPanel({
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-amber">
             <span className="h-3 w-1 rounded-full bg-amber" />
-            深度分析
+            🔬 深度洞察
             <span className="rounded-full border border-amber/30 bg-amber/10 px-2 py-0.5 text-[10px] font-normal">
               订阅尊享 · 即将上线
             </span>
@@ -338,7 +340,8 @@ export default function AiReportPanel({
           <div className="h-3 w-3/5 rounded bg-raised" />
         </div>
         <p className="mt-3 text-xs text-faint">
-          战术热区拆解、定位球攻防对位、换人影响模拟——订阅功能筹备中，当前全部基础内容免费。
+          教练视角的全维度战术拆解：战术热区、定位球攻防对位、关键球员影响与多维数据交叉分析——
+          更强模型 + 更长推理，订阅功能筹备中，当前极速洞察全部免费。
         </p>
       </section>
     </div>

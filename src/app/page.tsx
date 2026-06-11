@@ -1,18 +1,17 @@
 import Link from "next/link";
 import Countdown from "@/components/Countdown";
-import { getWorldCupMatches, STATUS_LABELS } from "@/lib/football-data";
+import MatchTicker, { type TickerMatch } from "@/components/MatchTicker";
+import { ANALYSIS_MODES } from "@/lib/analysis-modes";
+import { getWorldCupMatches, type FdMatchStatus } from "@/lib/football-data";
 import { teamNameZh } from "@/lib/team-names";
 
 export const revalidate = 60;
 
-const timeFmt = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai",
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
+function mapStatus(s: FdMatchStatus): TickerMatch["status"] {
+  if (s === "IN_PLAY" || s === "PAUSED") return "live";
+  if (s === "FINISHED" || s === "AWARDED") return "finished";
+  return "scheduled";
+}
 
 /** 世界杯小知识（全部与本届赛事/本站工具直接相关） */
 const KNOWLEDGE = [
@@ -42,11 +41,23 @@ export default async function Home() {
     .sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
   const upcoming = sorted.filter((m) => new Date(m.utcDate).getTime() > now - 3 * 3600_000);
   const next = upcoming.find((m) => m.status === "TIMED" || m.status === "SCHEDULED");
-  const spotlight = upcoming.slice(0, 6);
+
+  const ticker: TickerMatch[] = upcoming.slice(0, 40).map((m) => ({
+    id: m.id,
+    home: teamNameZh(m.homeTeam.name),
+    away: teamNameZh(m.awayTeam.name),
+    homeLogo: m.homeTeam.crest,
+    awayLogo: m.awayTeam.crest,
+    kickoff: m.utcDate,
+    group: m.group ? m.group.replace("GROUP_", "") : null,
+    status: mapStatus(m.status),
+    homeScore: m.score.fullTime.home,
+    awayScore: m.score.fullTime.away,
+  }));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
-      {/* Hero + 倒计时 */}
+      {/* Hero：当 AI 遇上世界杯 */}
       <section className="card anim-fade-up relative overflow-hidden px-7 py-10 sm:px-10">
         <svg
           className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 text-neon/10"
@@ -65,12 +76,11 @@ export default async function Home() {
           FIFA WORLD CUP 2026 · 48 TEAMS · 104 MATCHES
         </p>
         <h1 className="mt-3 text-3xl font-bold leading-snug text-ink sm:text-4xl">
-          用 AI 和数据
-          <br />
-          看懂世界杯的每一场球
+          当 AI 遇上世界杯
         </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-mut">
-          官方赔率换算、AI 赛事报告、完整赛程数据——只做信息和效率，不提供任何投注服务。
+        <p className="mt-4 max-w-xl text-sm leading-relaxed text-mut">
+          <strong className="text-ink">全球顶尖大模型 × 竞彩官方数据</strong>，两种分析模式带你从
+          概率学角度看懂每一场球的阵容、数据与赔率逻辑——只做信息和效率，不提供任何投注服务。
         </p>
         {next && (
           <div className="mt-6">
@@ -82,79 +92,86 @@ export default async function Home() {
         )}
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/calculator"
+            href="/matches"
             className="rounded-lg bg-neon px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
           >
-            打开赔率工具
+            查看 AI 分析
           </Link>
           <Link
-            href="/matches"
+            href="/calculator"
             className="rounded-lg border border-line-strong px-5 py-2.5 text-sm text-ink transition hover:border-neon/60 hover:text-neon"
           >
-            查看赛程
+            打开赔率工具
           </Link>
         </div>
       </section>
 
-      {/* 近期比赛 */}
-      {spotlight.length > 0 && (
+      {/* 比赛滚动条 */}
+      {ticker.length > 0 && (
         <section className="mt-8">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-mut">
               <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
-              近期比赛
+              赛程速览
             </h2>
             <Link href="/matches" className="text-xs text-neon hover:underline">
               完整赛程 →
             </Link>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {spotlight.map((m, i) => {
-              const live = m.status === "IN_PLAY" || m.status === "PAUSED";
-              const finished = m.status === "FINISHED";
-              return (
-                <Link
-                  key={m.id}
-                  href={`/match/${m.id}`}
-                  className="card anim-fade-up flex items-center justify-between px-5 py-4 transition hover:border-neon/50"
-                  style={{ animationDelay: `${i * 70}ms` }}
-                >
-                  <div className="flex min-w-0 flex-col gap-1 text-sm">
-                    <span className="truncate text-ink">
-                      {teamNameZh(m.homeTeam.name)}
-                      <span className="px-1.5 text-faint">vs</span>
-                      {teamNameZh(m.awayTeam.name)}
-                    </span>
-                    <span className="text-xs text-faint">
-                      {timeFmt.format(new Date(m.utcDate))}
-                      {m.group ? ` · ${m.group.replace("GROUP_", "")}组` : ""}
-                    </span>
-                  </div>
-                  {live || finished ? (
-                    <span
-                      className={`font-num text-2xl font-bold tabular-nums ${live ? "text-live" : "text-ink"}`}
-                    >
-                      {m.score.fullTime.home ?? 0}–{m.score.fullTime.away ?? 0}
-                    </span>
-                  ) : (
-                    <span className="chip shrink-0">{STATUS_LABELS[m.status]}</span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
+          <MatchTicker matches={ticker} />
         </section>
       )}
 
+      {/* 两种分析模式 */}
+      <section className="mt-10">
+        <h2 className="text-center text-xs font-semibold tracking-[0.25em] text-faint">
+          两种 AI 分析模式
+        </h2>
+        <p className="mt-2 text-center text-sm text-mut">
+          每场比赛都可以用 AI 深度解读，从数据和概率的角度看懂门道
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {Object.values(ANALYSIS_MODES).map((mode) => (
+            <div
+              key={mode.key}
+              className={`card anim-fade-up p-6 ${mode.free ? "" : "border-amber/25"}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-2xl" aria-hidden>
+                  {mode.icon}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    mode.free
+                      ? "bg-neon/10 text-neon"
+                      : "border border-amber/30 bg-amber/10 text-amber"
+                  }`}
+                >
+                  {mode.free ? "免费" : "订阅尊享"}
+                </span>
+              </div>
+              <h3 className="mt-3 text-lg font-bold text-ink">
+                {mode.name}
+                <span className="font-num ml-2 text-[10px] font-semibold tracking-widest text-faint">
+                  {mode.en}
+                </span>
+              </h3>
+              <p className="mt-1 text-sm font-medium text-mut">{mode.tagline}</p>
+              <p className="mt-2 text-sm leading-relaxed text-mut">{mode.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* 世界杯小知识 */}
-      <section className="mt-8">
+      <section className="mt-10">
         <h2 className="mb-3 text-sm font-semibold text-mut">世界杯小知识</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {KNOWLEDGE.map((k, i) => (
             <article
               key={k.title}
               className="card anim-fade-up p-5"
-              style={{ animationDelay: `${150 + i * 70}ms` }}
+              style={{ animationDelay: `${i * 70}ms` }}
             >
               <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
                 <span className="h-3 w-1 rounded-full bg-neon" />
