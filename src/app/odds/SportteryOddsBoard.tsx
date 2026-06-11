@@ -223,20 +223,12 @@ export default function SportteryOddsBoard({
         <section className="card px-5 py-4">
           <h2 className="text-lg font-bold text-ink">体彩官方赔率</h2>
           <p className="mt-1 text-sm leading-relaxed text-mut">
-            数据来自中国竞彩网公开足球计算器，自动载入在售场次。点击任意结果即可组合串关，
+            在售赔率自动同步，页面持续展示最新采集结果。点击任意结果即可组合串关，
             百分比为赔率反推的归一化概率，仅作信息换算。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="chip">来源：{payload.source}</span>
-            <a
-              href={payload.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="chip text-neon transition hover:border-neon/40"
-            >
-              官方页面 ↗
-            </a>
-            <span className="chip font-num">更新：{payload.lastUpdated ?? "以官方页面为准"}</span>
+            <span className="chip text-neon">实时同步赔率</span>
+            <span className="chip font-num">每 10 分钟更新 · {payload.lastUpdated ?? "同步中"}</span>
           </div>
           {payload.error && (
             <p className="mt-3 rounded-lg border border-amber/20 bg-amber/5 px-3 py-2 text-xs text-amber/80">
@@ -259,7 +251,7 @@ export default function SportteryOddsBoard({
                 </div>
                 <span className="inline-flex items-center gap-1.5 text-xs text-neon">
                   <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
-                  仅展示 · 不可下单
+                  赔率已同步
                 </span>
               </div>
               {day.matches.map((match) => (

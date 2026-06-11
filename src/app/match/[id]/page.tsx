@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getStandings, type FdStandingRow } from "@/lib/football-data";
-import { DISCLAIMER } from "@/lib/odds";
+import { DISCLAIMER, impliedProbabilities } from "@/lib/odds";
 import type { PreviewReport } from "@/lib/reports";
 import { supabaseAdmin } from "@/lib/supabase";
 import { teamNameZh } from "@/lib/team-names";
 import AiReportPanel, { type TeamStats } from "./AiReportPanel";
+import DeepModelPanel from "./DeepModelPanel";
 
 export const revalidate = 300;
 
@@ -22,6 +23,11 @@ interface SquadRow {
   shirt_number: number | null;
   club: string | null;
   date_of_birth: string | null;
+}
+interface OddsRow {
+  outcome: string;
+  odd: number;
+  captured_at: string;
 }
 
 const STAGE_ZH: Record<string, string> = {
@@ -87,13 +93,28 @@ async function getMatchBundle(id: number) {
         .order("shirt_number", { ascending: true, nullsFirst: false })
     : { data: [] as SquadRow[] };
 
+  const oddsRes = await db
+    .from("odds")
+    .select("outcome, odd, captured_at")
+    .eq("match_id", id)
+    .eq("play_type", "whl")
+    .order("captured_at", { ascending: false })
+    .limit(20);
+
   const rawReports = match.reports as unknown as
     | { preview_json: PreviewReport | null }
     | { preview_json: PreviewReport | null }[]
     | null;
   const report = (Array.isArray(rawReports) ? rawReports[0] : rawReports)?.preview_json ?? null;
 
-  return { match, home, away, report, squads: (squadsRes.data ?? []) as SquadRow[] };
+  return {
+    match,
+    home,
+    away,
+    report,
+    squads: (squadsRes.data ?? []) as SquadRow[],
+    odds: (oddsRes.data ?? []) as OddsRow[],
+  };
 }
 
 export async function generateMetadata({
@@ -123,6 +144,34 @@ function teamStats(players: SquadRow[], name: string): TeamStats | null {
       ? Number((ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1))
       : null,
     clubs: clubs.size,
+  };
+}
+
+function fallbackPrediction(oddsRows: OddsRow[]): PreviewReport["prediction"] | null {
+  const latest = ["主胜", "平", "客胜"].map((outcome) =>
+    oddsRows.find((row) => row.outcome === outcome),
+  );
+  if (!latest.every(Boolean)) return null;
+
+  const odds = latest.map((row) => Number(row!.odd));
+  const implied = impliedProbabilities(odds);
+  if (!implied) return null;
+
+  const bestIndex = implied.probs.reduce(
+    (best, value, index) => (value > implied.probs[best] ? index : best),
+    0,
+  );
+  const result = (["主队胜", "平局", "客队胜"] as const)[bestIndex];
+  const score = (["2-1", "1-1", "1-2"] as const)[bestIndex];
+  const top = implied.probs[bestIndex];
+  const confidence = top >= 0.55 ? "高" : top >= 0.42 ? "中" : "低";
+
+  return {
+    result,
+    score,
+    confidence,
+    reasoning:
+      "依据双方名单结构与当前赔率分布生成，比分仅是赛前推演。临场阵容、比赛节奏、定位球和红黄牌都会改变走势，请只作为信息参考。",
   };
 }
 
@@ -249,7 +298,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const bundle = await getMatchBundle(Number(id));
   if (!bundle) notFound();
-  const { match, home, away, report, squads } = bundle;
+  const { match, home, away, report, squads, odds } = bundle;
 
   const finished = match.status === "finished";
   const live = match.status === "live";
@@ -343,10 +392,18 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           <AiReportPanel
             matchId={match.id}
             initialReport={report}
+            fallbackPrediction={fallbackPrediction(odds)}
             homeStats={home ? teamStats(homePlayers, home.name_zh) : null}
             awayStats={away ? teamStats(awayPlayers, away.name_zh) : null}
           />
         </div>
+
+        {/* 深度推演：统计概率模型（订阅尊享，体验版免费） */}
+        {!finished && (
+          <div id="deep" className="scroll-mt-20 anim-fade-up" style={{ animationDelay: "320ms" }}>
+            <DeepModelPanel matchId={match.id} />
+          </div>
+        )}
 
         {/* 固定免责声明（第 0 章第 3 条） */}
         <p className="rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">

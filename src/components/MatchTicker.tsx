@@ -28,7 +28,9 @@ const dayTimeFmt = new Intl.DateTimeFormat("zh-CN", {
 export default function MatchTicker({ matches }: { matches: TickerMatch[] }) {
   if (matches.length === 0) return null;
   return (
-    <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
+    <div className="relative -mx-4">
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-pitch to-transparent" />
+      <div className="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-4 pb-2">
       {matches.map((m) => {
         const live = m.status === "live";
         const finished = m.status === "finished";
@@ -36,7 +38,7 @@ export default function MatchTicker({ matches }: { matches: TickerMatch[] }) {
           <Link
             key={m.id}
             href={`/match/${m.id}`}
-            className="card shrink-0 px-4 py-3 transition hover:border-neon/50"
+            className="card shrink-0 snap-start px-4 py-3 transition hover:border-neon/50"
             style={{ minWidth: "11rem" }}
           >
             <div className="mb-2 flex items-center justify-between text-[11px] text-faint">
@@ -55,6 +57,7 @@ export default function MatchTicker({ matches }: { matches: TickerMatch[] }) {
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }

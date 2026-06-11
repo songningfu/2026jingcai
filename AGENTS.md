@@ -82,13 +82,15 @@ curl "http://localhost:3000/api/reports/generate?secret=$CRON_SECRET&match=<id>"
 
 - 身份：`lib/device-id.ts` 浏览器 localStorage UUID（设备访客，无需登录）。profiles.id 已去掉 auth.users 外键（见 `migrations/20260611_games.sql`）。
 - 逻辑全在 `lib/games.ts`（server-only）：注册赠 1000、签到 +100/日、竞猜按官方赔率锁定倍数、赛后结算（猜中拿回 stake×倍数）。**所有积分变动写 `points_ledger` 审计，零 money 通道**（红线第 5 条）。
-- API：`/api/games/{me,checkin,predict,leaderboard,settle}`，写入全走 service_role。
+- API：`/api/games/{me,checkin,predict,leaderboard,settle}` 与 `/api/reports/unlock`，写入全走 service_role。
+- 积分消耗 MVP：用户可用 200 积分解锁单场「深度预测」，记录复用 `unlocks(user_id, match_id)`，扣减写 `points_ledger(reason='unlock_deep_prediction')`。AI 追问、徽章称号是后续站内权益，仍不得出现充值/提现/实物兑换。
 - 结算：`settleFinishedMatches()` 幂等，已挂在 `syncMatches()` 末尾——每分钟 sync 时自动结算完赛竞猜，无需独立 cron。
 - UI 文案避开禁用词（用「投入/竞猜/猜中」，不用「押」）。
 
 ## 部署与运维（已上线）
 
 - 生产：**https://jingcai-beta.vercel.app**（Vercel，项目 songningfus-projects/jingcai，区域 sin1）。
+- 国内访问过渡：腾讯云中国香港轻量服务器 `43.161.217.43`，Ubuntu 24.04 LTS，2C2G/40GB/200Mbps；项目目录 `/home/ubuntu/jingcai`，PM2 运行 `jingcai`，Nginx 将 80 端口反代到 `127.0.0.1:3000`。详见 `../部署指南.md`。
 - 重新部署：`cd jingcai && npx vercel --prod --yes`；改环境变量：`npx vercel env add <NAME> production --force`。
 - **竞彩官网（webapi.sporttery.cn）只认国内 IP**，Vercel 机房访问返回 567/WAF 拦截。架构：阿里云 FC（国内 IP）每 10 分钟抓官网原始 JSON → POST `/api/odds/ingest?secret=` → 我们解析入库。FC 函数代码在 `../aliyun-fc/index.mjs`（只负责抓+转发，逻辑不在云函数里）。抓取需完整请求头（Origin/X-Requested-With/UA）才能过 WAF，见 `lib/sporttery.ts`。`lib/sporttery.ts` 已拆分 `parseSportteryResponse(raw)`（解析）与 `getSportteryFootballOdds()`（抓+解析）；`syncSportteryOdds(payload?)` 可接收已抓取的 payload。线上 `/calculator` 仍有 `lib/sporttery-fallback.ts` 降级读缓存，勿破坏。
 - `/api/sync`（football-data）与 `/api/reports/generate`（DeepSeek）境外可跑，由 cron-job.org 分钟级 / 小时级触发。详见 `../部署指南.md`。

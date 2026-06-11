@@ -35,11 +35,10 @@ const KNOWLEDGE = [
 
 export default async function Home() {
   const matches = await getWorldCupMatches().catch(() => []);
-  const now = Date.now();
   const sorted = matches
     .slice()
     .sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
-  const upcoming = sorted.filter((m) => new Date(m.utcDate).getTime() > now - 3 * 3600_000);
+  const upcoming = sorted.filter((m) => m.status !== "FINISHED" && m.status !== "AWARDED");
   const next = upcoming.find((m) => m.status === "TIMED" || m.status === "SCHEDULED");
 
   const ticker: TickerMatch[] = upcoming.slice(0, 40).map((m) => ({
@@ -122,16 +121,18 @@ export default async function Home() {
         </section>
       )}
 
-      {/* 两种分析模式 */}
+      {/* AI 深度解读 */}
       <section className="mt-10">
         <h2 className="text-center text-xs font-semibold tracking-[0.25em] text-faint">
-          两种 AI 分析模式
+          AI 深度解读
         </h2>
         <p className="mt-2 text-center text-sm text-mut">
-          每场比赛都可以用 AI 深度解读，从数据和概率的角度看懂门道
+          从阵容、战术变量和公开价格信息里拆出赛前线索
         </p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {Object.values(ANALYSIS_MODES).map((mode) => (
+        <div className="mt-5 grid gap-3">
+          {Object.values(ANALYSIS_MODES)
+            .filter((mode) => !mode.free)
+            .map((mode) => (
             <div
               key={mode.key}
               className={`card anim-fade-up p-6 ${mode.free ? "" : "border-amber/25"}`}

@@ -33,6 +33,10 @@ interface PredictionView {
   won: boolean | null;
   points_delta: number | null;
 }
+interface UnlockView {
+  match_id: number;
+  created_at: string;
+}
 
 const timeFmt = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai",
@@ -47,12 +51,13 @@ function todayCN() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
 }
 
-type Tab = "predict" | "rank" | "mine";
+type Tab = "predict" | "perks" | "rank" | "mine";
 
 export default function GamesClient({ matches }: { matches: GameMatch[] }) {
   const [deviceId, setDeviceId] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [predictions, setPredictions] = useState<PredictionView[]>([]);
+  const [unlocks, setUnlocks] = useState<UnlockView[]>([]);
   const [rank, setRank] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("predict");
   const [toast, setToast] = useState("");
@@ -78,6 +83,7 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
     if (data.ok) {
       setProfile(data.profile);
       setPredictions(data.predictions);
+      setUnlocks(data.unlocks ?? []);
       setRank(data.rank);
     }
   }, []);
@@ -154,6 +160,7 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
         {(
           [
             { k: "predict", label: "竞猜" },
+            { k: "perks", label: "权益" },
             { k: "rank", label: "排行榜" },
             { k: "mine", label: "我的" },
           ] as const
@@ -186,12 +193,13 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
           />
         )}
         {tab === "rank" && <RankTab myNickname={profile?.nickname ?? null} />}
-        {tab === "mine" && <MineTab predictions={predictions} matches={matches} />}
+        {tab === "perks" && <PerksTab points={profile?.points ?? 0} />}
+        {tab === "mine" && <MineTab predictions={predictions} unlocks={unlocks} matches={matches} />}
       </div>
 
       <p className="mt-8 rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">
-        积分为虚拟游戏币，<strong>不可充值、不可提现、不可兑换任何现金等价物</strong>，仅用于娱乐排名。
-        竞猜结果由真实赛果结算，理性娱乐。
+        积分为虚拟游戏币，<strong>不可充值、不可提现、不可兑换任何现金等价物</strong>。
+        积分仅用于站内娱乐竞猜、AI 内容权益和展示型徽章。
       </p>
 
       {toast && (
@@ -359,6 +367,61 @@ function MatchCard({
 
 /* ---------- 排行榜 tab ---------- */
 
+function PerksTab({ points }: { points: number }) {
+  return (
+    <div className="space-y-3">
+      <div className="card p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-ink">积分权益</h2>
+            <p className="mt-1 text-xs leading-relaxed text-faint">
+              签到和竞猜获得积分，积分可用于站内 AI 内容权益，不可兑换现金或实物。
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="font-num text-2xl font-bold text-neon">{points}</div>
+            <div className="text-xs text-faint">可用积分</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="card border-amber/25 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-ink">深度预测</h3>
+            <span className="font-num rounded-full bg-amber/10 px-2 py-0.5 text-xs text-amber">
+              200 积分/场
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-mut">
+            在比赛详情页解锁单场深度内容，查看战术变量、人员变量、状态曲线和赔率结构整合分析。
+          </p>
+        </div>
+        <div className="card p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-ink">AI 追问</h3>
+            <span className="font-num rounded-full bg-raised px-2 py-0.5 text-xs text-faint">
+              50 积分/次
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-mut">
+            面向单场报告继续追问阵容、战术和数据细节。功能接入中，后续开放。
+          </p>
+        </div>
+        <div className="card p-4 sm:col-span-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-ink">徽章与称号</h3>
+            <span className="rounded-full bg-neon/10 px-2 py-0.5 text-xs text-neon">筹备中</span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-mut">
+            连续签到、参与竞猜、解锁深度预测都可沉淀为展示型徽章和个人称号，用来丰富排行榜与个人页。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RankTab({ myNickname }: { myNickname: string | null }) {
   const [rows, setRows] = useState<{ nickname: string | null; points: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -412,9 +475,11 @@ function RankTab({ myNickname }: { myNickname: string | null }) {
 
 function MineTab({
   predictions,
+  unlocks,
   matches,
 }: {
   predictions: PredictionView[];
+  unlocks: UnlockView[];
   matches: GameMatch[];
 }) {
   const nameOf = (id: number) => {
@@ -422,34 +487,60 @@ function MineTab({
     return m ? `${m.home} vs ${m.away}` : `比赛 #${id}`;
   };
 
-  if (predictions.length === 0)
+  if (predictions.length === 0 && unlocks.length === 0)
     return (
       <div className="card border-dashed px-4 py-12 text-center text-sm text-mut">
-        还没有竞猜记录，去「竞猜」选一场吧。
+        还没有竞猜或权益记录，去「竞猜」选一场，或到比赛详情页解锁深度预测。
       </div>
     );
 
   return (
-    <div className="card overflow-hidden">
-      {predictions.map((p) => (
-        <div key={p.id} className="flex items-center gap-3 border-t border-line px-4 py-3 first:border-t-0">
-          <div className="flex-1">
-            <div className="text-sm text-ink">{nameOf(p.match_id)}</div>
-            <div className="text-xs text-faint">
-              猜 {PICK_LABEL[p.pick]} · 投入 {p.points_staked} · {Number(p.payout_multiplier).toFixed(2)}×
-            </div>
+    <div className="space-y-3">
+      {unlocks.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">
+            已解锁深度预测
           </div>
-          {!p.settled ? (
-            <span className="chip">待结算</span>
-          ) : p.won ? (
-            <span className="font-num font-semibold text-neon">
-              猜中 +{p.points_delta}
-            </span>
-          ) : (
-            <span className="font-num font-semibold text-live">{p.points_delta}</span>
-          )}
+          {unlocks.map((u) => (
+            <div key={u.match_id} className="flex items-center gap-3 border-t border-line px-4 py-3 first:border-t-0">
+              <div className="flex-1">
+                <div className="text-sm text-ink">{nameOf(u.match_id)}</div>
+                <div className="text-xs text-faint">
+                  {timeFmt.format(new Date(u.created_at))}
+                </div>
+              </div>
+              <span className="chip text-amber">深度预测</span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+
+      {predictions.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">
+            竞猜记录
+          </div>
+          {predictions.map((p) => (
+            <div key={p.id} className="flex items-center gap-3 border-t border-line px-4 py-3 first:border-t-0">
+              <div className="flex-1">
+                <div className="text-sm text-ink">{nameOf(p.match_id)}</div>
+                <div className="text-xs text-faint">
+                  猜 {PICK_LABEL[p.pick]} · 投入 {p.points_staked} · {Number(p.payout_multiplier).toFixed(2)}×
+                </div>
+              </div>
+              {!p.settled ? (
+                <span className="chip">待结算</span>
+              ) : p.won ? (
+                <span className="font-num font-semibold text-neon">
+                  猜中 +{p.points_delta}
+                </span>
+              ) : (
+                <span className="font-num font-semibold text-live">{p.points_delta}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

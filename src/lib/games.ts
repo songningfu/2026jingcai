@@ -12,6 +12,7 @@ export const STARTING_POINTS = 1000;
 export const CHECKIN_POINTS = 100;
 export const MIN_STAKE = 10;
 export const DEFAULT_MULTIPLIER = 2.0;
+export const DEEP_PREDICTION_COST = 200;
 
 export type Pick = "win" | "draw" | "loss";
 const PICK_TO_OUTCOME: Record<Pick, string> = { win: "主胜", draw: "平", loss: "客胜" };
@@ -33,6 +34,11 @@ export interface PredictionView {
   settled: boolean;
   won: boolean | null;
   points_delta: number | null;
+}
+
+export interface UnlockView {
+  match_id: number;
+  created_at: string;
 }
 
 function todayCN(): string {
@@ -60,6 +66,62 @@ async function addPoints(
     reason,
     ref_match: refMatch ?? null,
   });
+}
+
+/** 用积分解锁单场深度预测；已解锁时不重复扣积分 */
+export async function unlockDeepPrediction(
+  deviceId: string,
+  matchId: number,
+): Promise<{ ok: boolean; message: string; points?: number; unlocked?: boolean }> {
+  const db = supabaseAdmin();
+  if (!Number.isInteger(matchId)) return { ok: false, message: "比赛参数错误" };
+
+  const profile = await registerOrGet(deviceId);
+  const { data: match } = await db.from("matches").select("id").eq("id", matchId).maybeSingle();
+  if (!match) return { ok: false, message: "比赛不存在" };
+
+  const { data: existing } = await db
+    .from("unlocks")
+    .select("id")
+    .eq("user_id", deviceId)
+    .eq("match_id", matchId)
+    .maybeSingle();
+  if (existing) {
+    return { ok: true, message: "已解锁深度预测", points: profile.points, unlocked: true };
+  }
+
+  if (profile.points < DEEP_PREDICTION_COST) {
+    return {
+      ok: false,
+      message: `积分不足，解锁需要 ${DEEP_PREDICTION_COST} 积分`,
+      points: profile.points,
+    };
+  }
+
+  const { error: unlockErr } = await db.from("unlocks").insert({
+    user_id: deviceId,
+    match_id: matchId,
+  });
+  if (unlockErr) {
+    if (unlockErr.code === "23505") {
+      return { ok: true, message: "已解锁深度预测", points: profile.points, unlocked: true };
+    }
+    return { ok: false, message: `解锁失败: ${unlockErr.message}` };
+  }
+
+  const nextPoints = profile.points - DEEP_PREDICTION_COST;
+  await db
+    .from("profiles")
+    .update({ points: nextPoints, updated_at: new Date().toISOString() })
+    .eq("id", deviceId);
+  await addPoints(deviceId, -DEEP_PREDICTION_COST, "unlock_deep_prediction", matchId);
+
+  return {
+    ok: true,
+    message: `已消耗 ${DEEP_PREDICTION_COST} 积分解锁深度预测`,
+    points: nextPoints,
+    unlocked: true,
+  };
 }
 
 /** 注册或读取设备身份对应的 profile；首次创建赠初始积分 */
@@ -273,6 +335,7 @@ export async function settleFinishedMatches(): Promise<{ matches: number; settle
 export async function getMe(deviceId: string): Promise<{
   profile: Profile;
   predictions: PredictionView[];
+  unlocks: UnlockView[];
   rank: number | null;
 }> {
   const db = supabaseAdmin();
@@ -280,6 +343,13 @@ export async function getMe(deviceId: string): Promise<{
   const { data: predictions } = await db
     .from("predictions")
     .select("id, match_id, pick, points_staked, payout_multiplier, settled, won, points_delta")
+    .eq("user_id", deviceId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  const { data: unlocks } = await db
+    .from("unlocks")
+    .select("match_id, created_at")
     .eq("user_id", deviceId)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -292,6 +362,7 @@ export async function getMe(deviceId: string): Promise<{
   return {
     profile,
     predictions: (predictions ?? []) as PredictionView[],
+    unlocks: (unlocks ?? []) as UnlockView[],
     rank: typeof count === "number" ? count + 1 : null,
   };
 }

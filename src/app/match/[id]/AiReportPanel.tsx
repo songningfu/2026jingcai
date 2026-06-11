@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getDeviceId } from "@/lib/device-id";
 import type { PreviewReport } from "@/lib/reports";
 
 /**
@@ -98,21 +99,46 @@ const INSIGHT_META = [
   { key: "form_curve", icon: "📉", label: "状态曲线" },
 ] as const;
 
+const DEEP_PREDICTION_COST = 200;
+const MODEL_OPTIONS = [
+  "DeepSeek",
+  "通义千问",
+  "智谱 GLM",
+  "豆包",
+  "文心一言",
+  "Moonshot Kimi",
+  "MiniMax",
+  "百川智能",
+  "讯飞星火",
+  "腾讯混元",
+] as const;
+
+type Prediction = NonNullable<PreviewReport["prediction"]>;
+
 export default function AiReportPanel({
   matchId,
   initialReport,
+  fallbackPrediction,
   homeStats,
   awayStats,
 }: {
   matchId: number;
   initialReport: PreviewReport | null;
+  fallbackPrediction?: Prediction | null;
   homeStats: TeamStats | null;
   awayStats: TeamStats | null;
 }) {
-  const [phase, setPhase] = useState<"idle" | "analyzing" | "done" | "error">("idle");
+  const [phase, setPhase] = useState<"idle" | "analyzing" | "done" | "error">(
+    initialReport ? "done" : "idle",
+  );
   const [report, setReport] = useState<PreviewReport | null>(initialReport);
+  const [selectedModel, setSelectedModel] = useState<(typeof MODEL_OPTIONS)[number]>("DeepSeek");
   const [step, setStep] = useState(0);
   const [errMsg, setErrMsg] = useState("");
+  const [deepUnlocked, setDeepUnlocked] = useState(false);
+  const [deepBusy, setDeepBusy] = useState(false);
+  const [deepMsg, setDeepMsg] = useState("");
+  const [pointsAfterUnlock, setPointsAfterUnlock] = useState<number | null>(null);
   const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -153,6 +179,28 @@ export default function AiReportPanel({
     }
   };
 
+  const unlockDeep = async () => {
+    setDeepBusy(true);
+    setDeepMsg("");
+    try {
+      const deviceId = getDeviceId();
+      const res = await fetch("/api/reports/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId, matchId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || data.message || "解锁失败");
+      setDeepUnlocked(true);
+      setPointsAfterUnlock(typeof data.points === "number" ? data.points : null);
+      setDeepMsg(data.message ?? "已解锁深度预测");
+    } catch (e) {
+      setDeepMsg(e instanceof Error ? e.message : "解锁失败，请稍后重试");
+    } finally {
+      setDeepBusy(false);
+    }
+  };
+
   /* ---------- 入口 / 加载 / 错误 ---------- */
 
   if (phase === "idle") {
@@ -163,7 +211,7 @@ export default function AiReportPanel({
         className="card group w-full px-6 py-9 text-center transition hover:border-neon/50 hover:shadow-[0_4px_20px_rgba(12,157,104,0.1)]"
       >
         <span className="font-num block text-xs font-semibold tracking-[0.3em] text-neon">
-          ⚡ 极速洞察 · FLASH INSIGHT
+          ⚡ AI 数据分析 · MATCH ANALYSIS
         </span>
         <span className="mt-2 block text-lg font-semibold text-ink transition group-hover:text-neon">
           ▶ 启动 AI 数据分析
@@ -226,6 +274,7 @@ export default function AiReportPanel({
 
   const showCompare =
     homeStats && awayStats && (homeStats.avgAge !== null || awayStats.avgAge !== null);
+  const prediction = report.prediction ?? fallbackPrediction ?? null;
 
   return (
     <div className="space-y-4">
@@ -261,7 +310,7 @@ export default function AiReportPanel({
           &ldquo;
         </span>
         <p className="font-num text-xs font-semibold tracking-[0.25em] text-neon">
-          ⚡ 极速洞察 · AI 赛前分析
+          ⚡ AI 数据分析 · 赛前分析
         </p>
         <p className="mt-3 text-[15px] leading-loose text-ink/90">
           <Rich text={report.ai_preview} />
@@ -319,30 +368,125 @@ export default function AiReportPanel({
         <p className="mt-2 text-xs text-faint">以上为竞彩官方公开价格的客观描述，非任何形式的建议。</p>
       </section>
 
-      {/* 深度分析：订阅预留位 */}
+      {prediction && (
+        <section className="card anim-fade-up p-5 sm:p-6" style={{ animationDelay: "540ms" }}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold tracking-[0.2em] text-neon">AI 赛果推演</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-neon/10 px-3 py-1 text-sm font-semibold text-neon">
+                  {prediction.result}
+                </span>
+                <span className="rounded-full bg-raised px-3 py-1 text-xs text-mut">
+                  信心 {prediction.confidence}
+                </span>
+              </div>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="text-xs text-faint">预测比分</p>
+              <p className="font-num text-5xl font-bold leading-none tabular-nums text-ink">
+                {prediction.score}
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm leading-relaxed text-mut">
+            <Rich text={prediction.reasoning} />
+          </p>
+        </section>
+      )}
+
+      {/* 深度预测：积分权益 */}
       <section
         className="card anim-fade-up relative overflow-hidden border-amber/25 p-5"
-        style={{ animationDelay: "580ms" }}
+        style={{ animationDelay: "620ms" }}
       >
-        <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-amber">
-            <span className="h-3 w-1 rounded-full bg-amber" />
-            🔬 深度洞察
-            <span className="rounded-full border border-amber/30 bg-amber/10 px-2 py-0.5 text-[10px] font-normal">
-              订阅尊享 · 即将上线
-            </span>
-          </h3>
-          <span aria-hidden>🔒</span>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-amber">
+              <span className="h-3 w-1 rounded-full bg-amber" />
+              🔬 深度预测
+              <span className="rounded-full border border-amber/30 bg-amber/10 px-2 py-0.5 text-[10px] font-normal">
+                {deepUnlocked ? "已解锁" : `${DEEP_PREDICTION_COST} 积分`}
+              </span>
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-faint">
+              用积分解锁单场深度内容，查看战术变量、人员变量、状态曲线与赔率结构的整合分析。
+              积分仅来自签到、竞猜和活动，不可充值、不可提现。
+            </p>
+          </div>
+          {!deepUnlocked && (
+            <button
+              type="button"
+              onClick={unlockDeep}
+              disabled={deepBusy}
+              className="rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
+            >
+              {deepBusy ? "解锁中…" : `解锁 ${DEEP_PREDICTION_COST} 积分`}
+            </button>
+          )}
         </div>
-        <div className="mt-3 space-y-2" aria-hidden>
-          <div className="h-3 w-11/12 rounded bg-raised" />
-          <div className="h-3 w-4/5 rounded bg-raised" />
-          <div className="h-3 w-3/5 rounded bg-raised" />
-        </div>
-        <p className="mt-3 text-xs text-faint">
-          教练视角的全维度战术拆解：战术热区、定位球攻防对位、关键球员影响与多维数据交叉分析——
-          更强模型 + 更长推理，订阅功能筹备中，当前极速洞察全部免费。
-        </p>
+        {deepMsg && (
+          <p
+            className={`mt-3 rounded-lg px-3 py-2 text-xs ${
+              deepUnlocked ? "bg-neon/10 text-neon" : "border border-amber/20 bg-amber/5 text-amber"
+            }`}
+          >
+            {deepMsg}
+            {pointsAfterUnlock !== null ? `，当前剩余 ${pointsAfterUnlock} 积分` : ""}
+          </p>
+        )}
+        {deepUnlocked ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg bg-raised/70 p-4">
+              <p className="text-xs font-medium text-amber">战术变量</p>
+              <p className="mt-2 text-sm leading-relaxed text-mut">
+                <Rich text={report.data_insight.attack_defense} />
+              </p>
+            </div>
+            <div className="rounded-lg bg-raised/70 p-4">
+              <p className="text-xs font-medium text-amber">人员变量</p>
+              <p className="mt-2 text-sm leading-relaxed text-mut">
+                <Rich text={report.data_insight.key_players} />
+              </p>
+            </div>
+            <div className="rounded-lg bg-raised/70 p-4">
+              <p className="text-xs font-medium text-amber">状态曲线</p>
+              <p className="mt-2 text-sm leading-relaxed text-mut">
+                <Rich text={report.data_insight.form_curve} />
+              </p>
+            </div>
+            <div className="rounded-lg bg-raised/70 p-4">
+              <p className="text-xs font-medium text-amber">赔率结构</p>
+              <p className="mt-2 text-sm leading-relaxed text-mut">
+                <Rich text={report.odds_reading} />
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2" aria-hidden>
+            <div className="h-3 w-11/12 rounded bg-raised" />
+            <div className="h-3 w-4/5 rounded bg-raised" />
+            <div className="h-3 w-3/5 rounded bg-raised" />
+          </div>
+        )}
+      </section>
+
+      <section className="card anim-fade-up p-5" style={{ animationDelay: "700ms" }}>
+        <label className="flex flex-col gap-2 text-sm font-semibold text-ink sm:flex-row sm:items-center sm:justify-between">
+          <span>大模型切换</span>
+          <select
+            aria-label="大模型切换"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value as (typeof MODEL_OPTIONS)[number])}
+            className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-normal text-mut outline-none transition hover:border-neon/40 focus:border-neon sm:min-w-48"
+          >
+            {MODEL_OPTIONS.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
     </div>
   );

@@ -105,12 +105,6 @@ function parseChinaTime(date: string | null | undefined, time: string | null | u
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseChinaDateTime(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const parsed = new Date(`${value.replace(" ", "T")}+08:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
 function parseHandicap(row: SportteryOddsRow): number | null {
   if (row.poolCode === "HAD") return 0;
   const handicap = Number(row.handicapLabel);
@@ -153,7 +147,7 @@ function toOddsRows(match: MatchedSportteryMatch, fallbackCapturedAt: string): O
   const rows: OddsInsertRow[] = [];
 
   for (const oddsRow of match.sportteryMatch.rows) {
-    const capturedAt = parseChinaDateTime(oddsRow.updateAt) ?? fallbackCapturedAt;
+    const capturedAt = fallbackCapturedAt;
     const playType = oddsRow.poolCode === "HAD" ? "whl" : "handicap";
     const handicap = parseHandicap(oddsRow);
 

@@ -147,14 +147,16 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
           <span />
         </div>
       )}
-      {/* 两种 AI 分析模式入口 */}
+      {/* 深度预测入口 */}
       {!finished && (
-        <div className="mt-2.5 flex gap-2">
-          {Object.values(ANALYSIS_MODES).map((mode) => (
+        <div className="mt-3 flex flex-wrap justify-center gap-2.5">
+          {Object.values(ANALYSIS_MODES)
+            .filter((mode) => !mode.free)
+            .map((mode) => (
             <Link
               key={mode.key}
               href={`/match/${match.id}#ai`}
-              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition ${
+              className={`flex min-w-[6.25rem] items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
                 mode.free
                   ? "bg-neon/10 text-neon hover:bg-neon/15"
                   : "border border-amber/30 bg-amber/5 text-amber hover:bg-amber/10"
@@ -162,7 +164,7 @@ function MatchRow({ match, odds }: { match: FdMatch; odds?: WhlOdds }) {
             >
               <span aria-hidden>{mode.icon}</span>
               {mode.name}
-              {!mode.free && <span className="text-[10px] opacity-70">· 订阅</span>}
+              {!mode.free && <span className="text-xs opacity-70">· 订阅</span>}
             </Link>
           ))}
         </div>
