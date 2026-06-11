@@ -78,6 +78,14 @@ curl "http://localhost:3000/api/reports/generate?secret=$CRON_SECRET"
 curl "http://localhost:3000/api/reports/generate?secret=$CRON_SECRET&match=<id>"
 ```
 
+## 积分竞猜（已上线 /games）
+
+- 身份：`lib/device-id.ts` 浏览器 localStorage UUID（设备访客，无需登录）。profiles.id 已去掉 auth.users 外键（见 `migrations/20260611_games.sql`）。
+- 逻辑全在 `lib/games.ts`（server-only）：注册赠 1000、签到 +100/日、竞猜按官方赔率锁定倍数、赛后结算（猜中拿回 stake×倍数）。**所有积分变动写 `points_ledger` 审计，零 money 通道**（红线第 5 条）。
+- API：`/api/games/{me,checkin,predict,leaderboard,settle}`，写入全走 service_role。
+- 结算：`settleFinishedMatches()` 幂等，已挂在 `syncMatches()` 末尾——每分钟 sync 时自动结算完赛竞猜，无需独立 cron。
+- UI 文案避开禁用词（用「投入/竞猜/猜中」，不用「押」）。
+
 ## 部署与运维（已上线）
 
 - 生产：**https://jingcai-beta.vercel.app**（Vercel，项目 songningfus-projects/jingcai，区域 sin1）。
