@@ -1,19 +1,25 @@
 import type { Metadata } from "next";
 import { emptySportteryPayload, getSportteryFootballOdds } from "@/lib/sporttery";
+import { getOddsBoardFromDb } from "@/lib/sporttery-fallback";
 import Calculator from "./Calculator";
 
 export const metadata: Metadata = {
-  title: "概率工具 — 官方赔率 / 概率换算 / 串关计算",
+  title: "赔率工具 — 官方赔率 / 概率换算 / 串关计算",
   description:
-    "中国竞彩网公开赔率展示、隐含概率换算、模拟金额、手动单场与串关计算。仅供参考，不构成购彩建议。",
+    "中国竞彩网公开赔率展示、隐含概率换算、模拟金额与串关计算。仅供参考，不构成购彩建议。",
 };
 
 export const revalidate = 60;
 
 export default async function CalculatorPage() {
-  const sportteryPayload = await getSportteryFootballOdds().catch((error) =>
+  // 官方接口拒绝境外 IP（Vercel 机房），失败时降级读本站采集缓存（Supabase odds 表）
+  let payload = await getSportteryFootballOdds().catch((error) =>
     emptySportteryPayload(error instanceof Error ? error.message : String(error)),
   );
+  if (payload.days.length === 0) {
+    const fallback = await getOddsBoardFromDb().catch(() => null);
+    if (fallback && fallback.days.length > 0) payload = fallback;
+  }
 
-  return <Calculator sportteryPayload={sportteryPayload} />;
+  return <Calculator sportteryPayload={payload} />;
 }
