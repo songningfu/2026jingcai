@@ -193,7 +193,7 @@ export default function AiReportPanel({
       if (!res.ok || !data.ok) throw new Error(data.error || data.message || "解锁失败");
       setDeepUnlocked(true);
       setPointsAfterUnlock(typeof data.points === "number" ? data.points : null);
-      setDeepMsg(data.message ?? "已解锁深度预测");
+      setDeepMsg(data.message ?? "已解锁深度推演");
     } catch (e) {
       setDeepMsg(e instanceof Error ? e.message : "解锁失败，请稍后重试");
     } finally {
@@ -368,34 +368,7 @@ export default function AiReportPanel({
         <p className="mt-2 text-xs text-faint">以上为竞彩官方公开价格的客观描述，非任何形式的建议。</p>
       </section>
 
-      {prediction && (
-        <section className="card anim-fade-up p-5 sm:p-6" style={{ animationDelay: "540ms" }}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold tracking-[0.2em] text-neon">AI 赛果推演</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-neon/10 px-3 py-1 text-sm font-semibold text-neon">
-                  {prediction.result}
-                </span>
-                <span className="rounded-full bg-raised px-3 py-1 text-xs text-mut">
-                  信心 {prediction.confidence}
-                </span>
-              </div>
-            </div>
-            <div className="text-left sm:text-right">
-              <p className="text-xs text-faint">预测比分</p>
-              <p className="font-num text-5xl font-bold leading-none tabular-nums text-ink">
-                {prediction.score}
-              </p>
-            </div>
-          </div>
-          <p className="mt-4 text-sm leading-relaxed text-mut">
-            <Rich text={prediction.reasoning} />
-          </p>
-        </section>
-      )}
-
-      {/* 深度预测：积分权益 */}
+      {/* 深度推演：积分权益 */}
       <section
         className="card anim-fade-up relative overflow-hidden border-amber/25 p-5"
         style={{ animationDelay: "620ms" }}
@@ -404,7 +377,7 @@ export default function AiReportPanel({
           <div>
             <h3 className="flex items-center gap-2 text-sm font-semibold text-amber">
               <span className="h-3 w-1 rounded-full bg-amber" />
-              🔬 深度预测
+              🔬 深度推演
               <span className="rounded-full border border-amber/30 bg-amber/10 px-2 py-0.5 text-[10px] font-normal">
                 {deepUnlocked ? "已解锁" : `${DEEP_PREDICTION_COST} 积分`}
               </span>

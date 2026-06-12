@@ -68,7 +68,7 @@ async function addPoints(
   });
 }
 
-/** 用积分解锁单场深度预测；已解锁时不重复扣积分 */
+/** 用积分解锁单场深度推演；已解锁时不重复扣积分 */
 export async function unlockDeepPrediction(
   deviceId: string,
   matchId: number,
@@ -87,7 +87,7 @@ export async function unlockDeepPrediction(
     .eq("match_id", matchId)
     .maybeSingle();
   if (existing) {
-    return { ok: true, message: "已解锁深度预测", points: profile.points, unlocked: true };
+    return { ok: true, message: "已解锁深度推演", points: profile.points, unlocked: true };
   }
 
   if (profile.points < DEEP_PREDICTION_COST) {
@@ -104,7 +104,7 @@ export async function unlockDeepPrediction(
   });
   if (unlockErr) {
     if (unlockErr.code === "23505") {
-      return { ok: true, message: "已解锁深度预测", points: profile.points, unlocked: true };
+      return { ok: true, message: "已解锁深度推演", points: profile.points, unlocked: true };
     }
     return { ok: false, message: `解锁失败: ${unlockErr.message}` };
   }
@@ -118,7 +118,7 @@ export async function unlockDeepPrediction(
 
   return {
     ok: true,
-    message: `已消耗 ${DEEP_PREDICTION_COST} 积分解锁深度预测`,
+    message: `已消耗 ${DEEP_PREDICTION_COST} 积分解锁深度推演`,
     points: nextPoints,
     unlocked: true,
   };

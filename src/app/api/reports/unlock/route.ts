@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidDeviceId, unlockDeepPrediction } from "@/lib/games";
 
-/** POST { deviceId, matchId } -> 用积分解锁单场深度预测 */
+/** POST { deviceId, matchId } -> 用积分解锁单场深度推演 */
 export async function POST(req: NextRequest) {
   try {
     const { deviceId, matchId } = await req.json();
