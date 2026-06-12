@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import NeuralCanvas from "./NeuralCanvas";
 import ScoreHeatmap from "./ScoreHeatmap";
+import TournamentGraph from "./TournamentGraph";
 
 interface DeepModelResult {
   hasOdds: boolean;
@@ -200,7 +201,7 @@ export default function DeductionPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 space-y-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
       <div className="relative overflow-hidden rounded-2xl bg-surface border border-line">
         <div className="relative h-32 w-full">
           <NeuralCanvas active className="absolute inset-0" />
@@ -216,17 +217,22 @@ export default function DeductionPage() {
         </p>
       </div>
 
-      {loading ? (
-        <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="card h-24 animate-pulse bg-raised" />)}</div>
-      ) : matches.length === 0 ? (
-        <div className="card px-6 py-10 text-center text-sm text-faint">暂无近期赛程数据</div>
-      ) : (
-        <div className="space-y-4">{matches.map((m) => <MatchCard key={m.id} match={m} />)}</div>
-      )}
+      {/* 赛事关系图谱：小组/球队/比赛节点网络，点球队看信息、点比赛去推演 */}
+      <TournamentGraph />
 
-      <p className="rounded-xl border border-amber/20 bg-amber/5 px-4 py-3 text-xs text-amber/80 leading-relaxed">
-        统计概率为信息整理，量化比赛不确定性，不预测胜负、不承诺准确率、不构成购彩建议。理性娱乐，未满 18 周岁禁止购彩。
-      </p>
+      <div className="mx-auto max-w-2xl space-y-6">
+        {loading ? (
+          <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="card h-24 animate-pulse bg-raised" />)}</div>
+        ) : matches.length === 0 ? (
+          <div className="card px-6 py-10 text-center text-sm text-faint">暂无近期赛程数据</div>
+        ) : (
+          <div className="space-y-4">{matches.map((m) => <MatchCard key={m.id} match={m} />)}</div>
+        )}
+
+        <p className="rounded-xl border border-amber/20 bg-amber/5 px-4 py-3 text-xs text-amber/80 leading-relaxed">
+          统计概率为信息整理，量化比赛不确定性，不预测胜负、不承诺准确率、不构成购彩建议。理性娱乐，未满 18 周岁禁止购彩。
+        </p>
+      </div>
     </div>
   );
 }
