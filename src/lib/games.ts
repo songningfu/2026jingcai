@@ -131,6 +131,55 @@ export async function unlockDeepPrediction(
   };
 }
 
+/**
+ * 按所选大模型开启深度推演：同一场同一模型只扣一次积分；已开启则直接放行。
+ * @returns alreadyOpen 表示之前已开启（不重复扣分）
+ */
+export async function openDeepRun(
+  deviceId: string,
+  matchId: number,
+  modelId: string,
+  cost: number,
+): Promise<{ ok: boolean; message: string; points?: number; alreadyOpen?: boolean }> {
+  const db = supabaseAdmin();
+  if (!Number.isInteger(matchId)) return { ok: false, message: "比赛参数错误" };
+  const charge = Number.isFinite(cost) && cost > 0 ? Math.round(cost) : DEEP_PREDICTION_COST;
+  const profile = await registerOrGet(deviceId);
+
+  const { data: existing } = await db
+    .from("unlocks")
+    .select("id")
+    .eq("user_id", deviceId)
+    .eq("match_id", matchId)
+    .eq("model_id", modelId)
+    .maybeSingle();
+  if (existing) {
+    return { ok: true, message: "已开启", points: profile.points, alreadyOpen: true };
+  }
+
+  if (profile.points < charge) {
+    return { ok: false, message: `积分不足，该模型推演需要 ${charge} 积分`, points: profile.points };
+  }
+
+  const { error: insErr } = await db
+    .from("unlocks")
+    .insert({ user_id: deviceId, match_id: matchId, model_id: modelId });
+  if (insErr) {
+    if (insErr.code === "23505") {
+      return { ok: true, message: "已开启", points: profile.points, alreadyOpen: true };
+    }
+    return { ok: false, message: `开启失败: ${insErr.message}` };
+  }
+
+  const next = profile.points - charge;
+  await db
+    .from("profiles")
+    .update({ points: next, updated_at: new Date().toISOString() })
+    .eq("id", deviceId);
+  await addPoints(deviceId, -charge, `deep_run:${modelId}`, matchId);
+  return { ok: true, message: `已消耗 ${charge} 积分`, points: next };
+}
+
 /** 注册或读取设备身份对应的 profile；首次创建赠初始积分 */
 export async function registerOrGet(deviceId: string, nickname?: string): Promise<Profile> {
   const db = supabaseAdmin();

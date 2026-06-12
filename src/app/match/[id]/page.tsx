@@ -6,8 +6,8 @@ import type { PreviewReport } from "@/lib/reports";
 import { supabaseAdmin } from "@/lib/supabase";
 import { teamNameZh } from "@/lib/team-names";
 import { listModelOptions } from "@/lib/models";
-import AiReportPanel, { type TeamStats } from "./AiReportPanel";
-import DeepModelPanel from "./DeepModelPanel";
+import { type TeamStats } from "./AiReportPanel";
+import DeepRunPanel from "./DeepRunPanel";
 
 export const revalidate = 300;
 
@@ -388,21 +388,10 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           </section>
         )}
 
-        {/* AI 报告：随时可现场生成 */}
-        <div id="ai" className="scroll-mt-20 anim-fade-up" style={{ animationDelay: "260ms" }}>
-          <AiReportPanel
-            matchId={match.id}
-            initialReport={report}
-            models={listModelOptions()}
-            homeStats={home ? teamStats(homePlayers, home.name_zh) : null}
-            awayStats={away ? teamStats(awayPlayers, away.name_zh) : null}
-          />
-        </div>
-
-        {/* 深度推演：统计概率模型（订阅尊享，体验版免费） */}
+        {/* 深度推演（合并）：统计比分概率免费 + 选大模型付费解读 */}
         {!finished && (
-          <div id="deep" className="scroll-mt-20 anim-fade-up" style={{ animationDelay: "320ms" }}>
-            <DeepModelPanel matchId={match.id} />
+          <div id="ai" className="scroll-mt-20 anim-fade-up" style={{ animationDelay: "260ms" }}>
+            <DeepRunPanel matchId={match.id} models={listModelOptions()} />
           </div>
         )}
 
