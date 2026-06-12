@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeviceId } from "@/lib/device-id";
+import type { ModelOption, ModelTier } from "@/lib/models";
 import type { PreviewReport } from "@/lib/reports";
+
+const TIER_BADGE: Record<ModelTier, string> = {
+  flagship: "旗舰",
+  advanced: "进阶",
+  entry: "入门",
+};
 
 /**
  * AI 报告面板。
@@ -99,32 +106,16 @@ const INSIGHT_META = [
   { key: "form_curve", icon: "📉", label: "状态曲线" },
 ] as const;
 
-const DEEP_PREDICTION_COST = 200;
-const MODEL_OPTIONS = [
-  "DeepSeek",
-  "通义千问",
-  "智谱 GLM",
-  "豆包",
-  "文心一言",
-  "Moonshot Kimi",
-  "MiniMax",
-  "百川智能",
-  "讯飞星火",
-  "腾讯混元",
-] as const;
-
-type Prediction = NonNullable<PreviewReport["prediction"]>;
-
 export default function AiReportPanel({
   matchId,
   initialReport,
-  fallbackPrediction,
+  models,
   homeStats,
   awayStats,
 }: {
   matchId: number;
   initialReport: PreviewReport | null;
-  fallbackPrediction?: Prediction | null;
+  models: ModelOption[];
   homeStats: TeamStats | null;
   awayStats: TeamStats | null;
 }) {
@@ -132,7 +123,15 @@ export default function AiReportPanel({
     initialReport ? "done" : "idle",
   );
   const [report, setReport] = useState<PreviewReport | null>(initialReport);
-  const [selectedModel, setSelectedModel] = useState<(typeof MODEL_OPTIONS)[number]>("DeepSeek");
+  // 默认选第一个可用模型，否则第一个
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    () => (models.find((m) => m.available) ?? models[0])?.id ?? "",
+  );
+  const selectedModel = useMemo(
+    () => models.find((m) => m.id === selectedModelId) ?? null,
+    [models, selectedModelId],
+  );
+  const deepCost = selectedModel?.cost ?? 200;
   const [step, setStep] = useState(0);
   const [errMsg, setErrMsg] = useState("");
   const [deepUnlocked, setDeepUnlocked] = useState(false);
@@ -180,6 +179,10 @@ export default function AiReportPanel({
   };
 
   const unlockDeep = async () => {
+    if (selectedModel && !selectedModel.available) {
+      setDeepMsg(`${selectedModel.name} 暂未开放，敬请期待`);
+      return;
+    }
     setDeepBusy(true);
     setDeepMsg("");
     try {
@@ -187,7 +190,7 @@ export default function AiReportPanel({
       const res = await fetch("/api/reports/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceId, matchId }),
+        body: JSON.stringify({ deviceId, matchId, modelId: selectedModelId }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || data.message || "解锁失败");
@@ -274,7 +277,6 @@ export default function AiReportPanel({
 
   const showCompare =
     homeStats && awayStats && (homeStats.avgAge !== null || awayStats.avgAge !== null);
-  const prediction = report.prediction ?? fallbackPrediction ?? null;
 
   return (
     <div className="space-y-4">
@@ -379,12 +381,12 @@ export default function AiReportPanel({
               <span className="h-3 w-1 rounded-full bg-amber" />
               🔬 深度推演
               <span className="rounded-full border border-amber/30 bg-amber/10 px-2 py-0.5 text-[10px] font-normal">
-                {deepUnlocked ? "已解锁" : `${DEEP_PREDICTION_COST} 积分`}
+                {deepUnlocked ? "已解锁" : `${selectedModel?.name ?? "模型"} · ${deepCost} 积分`}
               </span>
             </h3>
             <p className="mt-2 text-xs leading-relaxed text-faint">
-              用积分解锁单场深度内容，查看战术变量、人员变量、状态曲线与赔率结构的整合分析。
-              积分仅来自签到、竞猜和活动，不可充值、不可提现。
+              选择大模型开启单场深度推演，查看战术变量、人员变量、状态曲线与赔率结构的整合分析。
+              <strong>模型越强消耗积分越多</strong>；积分仅来自签到、竞猜和活动，不可充值、不可提现。
             </p>
           </div>
           {!deepUnlocked && (
@@ -392,9 +394,9 @@ export default function AiReportPanel({
               type="button"
               onClick={unlockDeep}
               disabled={deepBusy}
-              className="rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
+              className="shrink-0 rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
             >
-              {deepBusy ? "解锁中…" : `解锁 ${DEEP_PREDICTION_COST} 积分`}
+              {deepBusy ? "开启中…" : `开启推演 · ${deepCost} 积分`}
             </button>
           )}
         </div>
@@ -445,21 +447,32 @@ export default function AiReportPanel({
       </section>
 
       <section className="card anim-fade-up p-5" style={{ animationDelay: "700ms" }}>
-        <label className="flex flex-col gap-2 text-sm font-semibold text-ink sm:flex-row sm:items-center sm:justify-between">
-          <span>大模型切换</span>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-semibold text-ink">
+            选择推演大模型
+            <span className="ml-2 text-xs font-normal text-faint">越强越深，消耗积分越多</span>
+          </div>
           <select
-            aria-label="大模型切换"
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value as (typeof MODEL_OPTIONS)[number])}
-            className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-normal text-mut outline-none transition hover:border-neon/40 focus:border-neon sm:min-w-48"
+            aria-label="选择推演大模型"
+            value={selectedModelId}
+            onChange={(e) => setSelectedModelId(e.target.value)}
+            className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition hover:border-neon/40 focus:border-neon sm:min-w-64"
           >
-            {MODEL_OPTIONS.map((model) => (
-              <option key={model} value={model}>
-                {model}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} · {TIER_BADGE[m.tier]} · {m.cost}积分
+                {m.available ? "" : "（敬请期待）"}
               </option>
             ))}
           </select>
-        </label>
+        </div>
+        {selectedModel && (
+          <p className="mt-2 text-xs text-faint">
+            {selectedModel.provider} · {selectedModel.origin === "intl" ? "国外" : "国产"} ·{" "}
+            {selectedModel.blurb}
+            {!selectedModel.available && " · 该模型需配置密钥后开放"}
+          </p>
+        )}
       </section>
     </div>
   );

@@ -68,13 +68,20 @@ async function addPoints(
   });
 }
 
-/** 用积分解锁单场深度推演；已解锁时不重复扣积分 */
+/**
+ * 用积分解锁单场深度推演；已解锁时不重复扣积分。
+ * @param cost 本次消耗积分（按所选大模型档位，默认 DEEP_PREDICTION_COST）
+ * @param modelId 所选大模型 id（写入流水备查）
+ */
 export async function unlockDeepPrediction(
   deviceId: string,
   matchId: number,
+  cost: number = DEEP_PREDICTION_COST,
+  modelId?: string,
 ): Promise<{ ok: boolean; message: string; points?: number; unlocked?: boolean }> {
   const db = supabaseAdmin();
   if (!Number.isInteger(matchId)) return { ok: false, message: "比赛参数错误" };
+  const charge = Number.isFinite(cost) && cost > 0 ? Math.round(cost) : DEEP_PREDICTION_COST;
 
   const profile = await registerOrGet(deviceId);
   const { data: match } = await db.from("matches").select("id").eq("id", matchId).maybeSingle();
@@ -90,10 +97,10 @@ export async function unlockDeepPrediction(
     return { ok: true, message: "已解锁深度推演", points: profile.points, unlocked: true };
   }
 
-  if (profile.points < DEEP_PREDICTION_COST) {
+  if (profile.points < charge) {
     return {
       ok: false,
-      message: `积分不足，解锁需要 ${DEEP_PREDICTION_COST} 积分`,
+      message: `积分不足，该模型推演需要 ${charge} 积分`,
       points: profile.points,
     };
   }
@@ -109,16 +116,16 @@ export async function unlockDeepPrediction(
     return { ok: false, message: `解锁失败: ${unlockErr.message}` };
   }
 
-  const nextPoints = profile.points - DEEP_PREDICTION_COST;
+  const nextPoints = profile.points - charge;
   await db
     .from("profiles")
     .update({ points: nextPoints, updated_at: new Date().toISOString() })
     .eq("id", deviceId);
-  await addPoints(deviceId, -DEEP_PREDICTION_COST, "unlock_deep_prediction", matchId);
+  await addPoints(deviceId, -charge, modelId ? `unlock_deep:${modelId}` : "unlock_deep_prediction", matchId);
 
   return {
     ok: true,
-    message: `已消耗 ${DEEP_PREDICTION_COST} 积分解锁深度推演`,
+    message: `已消耗 ${charge} 积分开启深度推演`,
     points: nextPoints,
     unlocked: true,
   };

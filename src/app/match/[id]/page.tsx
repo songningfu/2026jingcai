@@ -5,6 +5,7 @@ import { DISCLAIMER, impliedProbabilities } from "@/lib/odds";
 import type { PreviewReport } from "@/lib/reports";
 import { supabaseAdmin } from "@/lib/supabase";
 import { teamNameZh } from "@/lib/team-names";
+import { listModelOptions } from "@/lib/models";
 import AiReportPanel, { type TeamStats } from "./AiReportPanel";
 import DeepModelPanel from "./DeepModelPanel";
 
@@ -392,7 +393,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           <AiReportPanel
             matchId={match.id}
             initialReport={report}
-            fallbackPrediction={fallbackPrediction(odds)}
+            models={listModelOptions()}
             homeStats={home ? teamStats(homePlayers, home.name_zh) : null}
             awayStats={away ? teamStats(awayPlayers, away.name_zh) : null}
           />
