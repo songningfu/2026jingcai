@@ -6,6 +6,8 @@ import "server-only";
  * 不可充值、不可提现、不可兑换任何现金等价物。本文件不实现任何 points↔money 通道。
  * 所有积分变动同时写 points_ledger 审计流水。
  */
+import { getModel } from "./models";
+import { activeTier, checkinBonus, effectiveCost } from "./subscriptions";
 import { supabaseAdmin } from "./supabase";
 
 export const STARTING_POINTS = 1000;
@@ -143,8 +145,18 @@ export async function openDeepRun(
 ): Promise<{ ok: boolean; message: string; points?: number; alreadyOpen?: boolean }> {
   const db = supabaseAdmin();
   if (!Number.isInteger(matchId)) return { ok: false, message: "比赛参数错误" };
-  const charge = Number.isFinite(cost) && cost > 0 ? Math.round(cost) : DEEP_PREDICTION_COST;
   const profile = await registerOrGet(deviceId);
+
+  // 订阅档位 → 实际消耗（Max 全免；Pro 入门/进阶免、旗舰 5 折；Free 全价）
+  const { data: sub } = await db
+    .from("profiles")
+    .select("sub_type, sub_expires")
+    .eq("id", deviceId)
+    .single();
+  const tier = activeTier(sub?.sub_type, sub?.sub_expires);
+  const modelTier = getModel(modelId)?.tier ?? "flagship";
+  const base = Number.isFinite(cost) && cost > 0 ? Math.round(cost) : DEEP_PREDICTION_COST;
+  const charge = effectiveCost(tier, modelTier, base);
 
   const { data: existing } = await db
     .from("unlocks")
@@ -169,6 +181,11 @@ export async function openDeepRun(
       return { ok: true, message: "已开启", points: profile.points, alreadyOpen: true };
     }
     return { ok: false, message: `开启失败: ${insErr.message}` };
+  }
+
+  if (charge === 0) {
+    await addPoints(deviceId, 0, `deep_run_sub:${tier}:${modelId}`, matchId);
+    return { ok: true, message: `${tier.toUpperCase()} 会员免积分开启`, points: profile.points };
   }
 
   const next = profile.points - charge;
@@ -226,13 +243,20 @@ export async function checkin(
   if (profile.last_checkin === today) {
     return { ok: false, points: profile.points, awarded: 0, message: "今天已签到，明天再来" };
   }
-  const newPoints = profile.points + CHECKIN_POINTS;
+  // 签到积分按订阅档位加成（Free 100 / Pro 200 / Max 300）
+  const { data: sub } = await db
+    .from("profiles")
+    .select("sub_type, sub_expires")
+    .eq("id", deviceId)
+    .single();
+  const awarded = checkinBonus(activeTier(sub?.sub_type, sub?.sub_expires));
+  const newPoints = profile.points + awarded;
   await db
     .from("profiles")
     .update({ points: newPoints, last_checkin: today, updated_at: new Date().toISOString() })
     .eq("id", deviceId);
-  await addPoints(deviceId, CHECKIN_POINTS, "checkin");
-  return { ok: true, points: newPoints, awarded: CHECKIN_POINTS, message: `签到成功 +${CHECKIN_POINTS}` };
+  await addPoints(deviceId, awarded, "checkin");
+  return { ok: true, points: newPoints, awarded, message: `签到成功 +${awarded}` };
 }
 
 /** 该场胜平负官方赔率 → 各结果倍数（无则用默认） */

@@ -6,8 +6,8 @@ export const maxDuration = 120;
 
 /**
  * POST /api/deep/run  { deviceId, matchId, modelId }
- * 按所选大模型开启深度推演：扣对应积分 → 用「该模型」真实生成解读 → 返回。
- * 同场同模型只扣一次；未配置密钥的模型直接拒绝（不冒充）。
+ * 按所选模型开启深度推演：扣对应积分 → 生成解读 → 返回。
+ * 同场同模型只扣一次。
  */
 export async function POST(req: NextRequest) {
   let deviceId: string, matchId: number, modelId: string;
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "参数错误" }, { status: 400 });
   }
 
-  // 校验模型可运行（已配密钥）
+  // 校验模型可运行
   let spec;
   try {
     spec = resolveRunnableModel(modelId);
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(charge, { status: 400 });
   }
 
-  // 用所选模型真实生成（缓存命中则秒回）
+  // 生成模型解读（缓存命中则秒回）
   try {
     const analysis = await getOrGenerateAnalysis(matchId, spec);
     return NextResponse.json({

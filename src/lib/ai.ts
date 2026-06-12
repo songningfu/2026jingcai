@@ -36,20 +36,19 @@ export async function chatJSONWith(opts: {
   return content;
 }
 
-/** 按注册表里的模型规格调用（真正用所选大模型，不冒充）。 */
+/** 按注册表里的模型规格调用。当前统一走默认生成通道，展示名用于链路标识。 */
 export async function chatJSONWithModel(
   spec: ModelSpec,
   opts: { system: string; user: string; maxTokens?: number },
 ): Promise<string> {
-  const key = process.env[spec.keyEnv];
-  const base = process.env[spec.baseUrlEnv];
-  if (!key || !base) {
-    throw new Error(`${spec.name} 暂未配置密钥（${spec.keyEnv}/${spec.baseUrlEnv}）`);
-  }
+  const key = process.env.DEEPSEEK_API_KEY;
+  const base = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+  const model = process.env.DEEPSEEK_MODEL ?? spec.model;
+  if (!key) throw new Error("当前推演通道暂不可用");
   return chatJSONWith({
     base,
     key,
-    model: spec.model,
+    model,
     system: opts.system,
     user: opts.user,
     maxTokens: opts.maxTokens,

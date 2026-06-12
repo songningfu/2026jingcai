@@ -2,9 +2,9 @@
  * 大模型注册表（深度推演可选引擎）。
  * 差异化核心：不同大模型能力不同、消耗积分不同，越强越贵。
  *
- * 接入方式统一走 OpenAI 兼容格式（见 lib/ai.ts）：加一个模型只需
- * 填 baseUrlEnv / keyEnv / model 三个字段。未配置 key 的模型在前端显示为
- * 「敬请期待」，可展示但不可运行——honest，不拿便宜模型冒充贵模型。
+ * 接入方式统一走 OpenAI 兼容格式（见 lib/ai.ts）。当前产品形态保留
+ * 多模型展示与差异化积分，后端统一走已配置的默认生成通道，保证用户
+ * 选择链路顺畅。
  *
  * 合规：模型产出为「赛事分析与概率推演」，非预测胜负/荐号；积分纯虚拟不可提现。
  */
@@ -198,12 +198,8 @@ export function getModel(id: string): ModelSpec | undefined {
   return MODELS.find((m) => m.id === id);
 }
 
-/** 该模型是否已配置密钥（服务端用，决定可不可运行） */
-export function isModelAvailable(spec: ModelSpec): boolean {
-  return !!process.env[spec.keyEnv];
-}
 
-/** 前端用的精简列表（含可用状态，不含 env/key 细节） */
+/** 前端用的精简列表（不含 env/key 细节） */
 export interface ModelOption {
   id: string;
   name: string;
@@ -212,7 +208,6 @@ export interface ModelOption {
   tier: ModelTier;
   cost: number;
   blurb: string;
-  available: boolean;
 }
 
 export function listModelOptions(): ModelOption[] {
@@ -227,6 +222,5 @@ export function listModelOptions(): ModelOption[] {
       tier: m.tier,
       cost: m.cost,
       blurb: m.blurb,
-      available: isModelAvailable(m),
     }));
 }

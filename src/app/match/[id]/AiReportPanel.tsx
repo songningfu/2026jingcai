@@ -123,9 +123,9 @@ export default function AiReportPanel({
     initialReport ? "done" : "idle",
   );
   const [report, setReport] = useState<PreviewReport | null>(initialReport);
-  // 默认选第一个可用模型，否则第一个
+  // 默认选第一个模型
   const [selectedModelId, setSelectedModelId] = useState<string>(
-    () => (models.find((m) => m.available) ?? models[0])?.id ?? "",
+    () => models[0]?.id ?? "",
   );
   const selectedModel = useMemo(
     () => models.find((m) => m.id === selectedModelId) ?? null,
@@ -179,10 +179,6 @@ export default function AiReportPanel({
   };
 
   const unlockDeep = async () => {
-    if (selectedModel && !selectedModel.available) {
-      setDeepMsg(`${selectedModel.name} 暂未开放，敬请期待`);
-      return;
-    }
     setDeepBusy(true);
     setDeepMsg("");
     try {
@@ -461,7 +457,6 @@ export default function AiReportPanel({
             {models.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name} · {TIER_BADGE[m.tier]} · {m.cost}积分
-                {m.available ? "" : "（敬请期待）"}
               </option>
             ))}
           </select>
@@ -470,7 +465,6 @@ export default function AiReportPanel({
           <p className="mt-2 text-xs text-faint">
             {selectedModel.provider} · {selectedModel.origin === "intl" ? "国外" : "国产"} ·{" "}
             {selectedModel.blurb}
-            {!selectedModel.available && " · 该模型需配置密钥后开放"}
           </p>
         )}
       </section>

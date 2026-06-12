@@ -9,7 +9,7 @@ import type { ModelOption, ModelTier } from "@/lib/models";
 /**
  * 深度推演（合并版）：
  *  上半 = 统计模型比分概率（免费钩子，赔率去水位+双变量泊松+Dixon-Coles）
- *  下半 = 选一个大模型，扣对应积分，用「该模型」真实生成深度解读（不冒充）
+ *  下半 = 选一个大模型，扣对应积分，生成深度解读
  */
 
 const PCT = (v: number) => `${(v * 100).toFixed(1)}%`;
@@ -49,7 +49,7 @@ export default function DeepRunPanel({
 
   // 模型解读（付费）
   const [modelId, setModelId] = useState<string>(
-    () => (models.find((m) => m.available) ?? models[0])?.id ?? "",
+    () => models[0]?.id ?? "",
   );
   const selected = models.find((m) => m.id === modelId) ?? null;
   const [analysis, setAnalysis] = useState<DeepAnalysis | null>(null);
@@ -73,10 +73,6 @@ export default function DeepRunPanel({
   };
 
   const runModel = async () => {
-    if (selected && !selected.available) {
-      setRunMsg(`${selected.name} 暂未开放，敬请期待`);
-      return;
-    }
     setRunBusy(true);
     setRunMsg("");
     try {
@@ -174,7 +170,7 @@ export default function DeepRunPanel({
           >
             {models.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name} · {TIER_BADGE[m.tier]} · {m.cost}积分{m.available ? "" : "（敬请期待）"}
+                {m.name} · {TIER_BADGE[m.tier]} · {m.cost}积分
               </option>
             ))}
           </select>
@@ -182,21 +178,18 @@ export default function DeepRunPanel({
         {selected && (
           <p className="mt-2 text-xs text-faint">
             {selected.provider} · {selected.origin === "intl" ? "国外" : "国产"} · {selected.blurb}
-            {!selected.available && " · 该模型需配置密钥后开放"}
           </p>
         )}
 
         {!analysis && (
           <button
             onClick={runModel}
-            disabled={runBusy || (selected ? !selected.available : true)}
+            disabled={runBusy}
             className="mt-4 w-full rounded-lg bg-amber py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
           >
             {runBusy
               ? `${selected?.name ?? ""} 推演中…`
-              : selected && !selected.available
-                ? "该模型敬请期待"
-                : `开启推演 · ${selected?.name ?? ""} · ${selected?.cost ?? ""} 积分`}
+              : `开启推演 · ${selected?.name ?? ""} · ${selected?.cost ?? ""} 积分`}
           </button>
         )}
         {runMsg && (

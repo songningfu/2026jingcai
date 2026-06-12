@@ -87,13 +87,14 @@ create table if not exists profiles (
   sub_expires   timestamptz
 );
 
--- 单场解锁记录
+-- 单场解锁记录（model_id 区分不同模型档位，同场同模型只扣一次积分）
 create table if not exists unlocks (
   id            bigserial primary key,
   user_id       uuid references profiles(id),
   match_id      bigint references matches(id),
+  model_id      text not null default '',
   created_at    timestamptz default now(),
-  unique(user_id, match_id)
+  unique(user_id, match_id, model_id)
 );
 
 -- 竞猜小游戏（虚拟积分，无真钱）

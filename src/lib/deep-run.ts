@@ -1,17 +1,17 @@
 import "server-only";
 
 /**
- * 深度推演（按所选大模型真实生成）。
- * 流程：取结构化数据 + 统计模型结果 → 用「选定的大模型」生成解读 → 合规过滤 → 缓存。
+ * 深度推演。
+ * 流程：取结构化数据 + 统计模型结果 → 生成解读 → 合规过滤 → 缓存。
  * 同场同模型只生成一次（model_analyses 全局缓存）。
  *
  * 合规：输出为「赛事分析与不确定性解读」，非预测胜负/荐号；
- * 全字段过禁用词；不同模型产出真不同，绝不拿默认模型冒充。
+ * 全字段过禁用词。
  */
-import { chatJSONWithModel } from "./ai";
+import { chatJSON } from "./ai";
 import { filterContent } from "./banned-terms";
 import { runDeepModel, type WhlInput } from "./deep-model";
-import { getModel, isModelAvailable, type ModelSpec } from "./models";
+import { getModel, type ModelSpec } from "./models";
 import { supabaseAdmin } from "./supabase";
 import { teamNameZh } from "./team-names";
 
@@ -159,7 +159,7 @@ export async function getOrGenerateAnalysis(
     1,
   )}`;
 
-  const raw = await chatJSONWithModel(spec, { system: SYSTEM_PROMPT, user: userPrompt, maxTokens: 3000 });
+  const raw = await chatJSON({ system: SYSTEM_PROMPT, user: userPrompt, maxTokens: 3000 });
   const analysis = sanitize(parseJson(raw));
 
   await db
@@ -169,10 +169,9 @@ export async function getOrGenerateAnalysis(
   return analysis;
 }
 
-/** 校验模型可用并返回其规格 */
+/** 校验模型并返回其规格 */
 export function resolveRunnableModel(modelId: string): ModelSpec {
   const spec = getModel(modelId);
   if (!spec) throw new Error("未知模型");
-  if (!isModelAvailable(spec)) throw new Error(`${spec.name} 暂未开放，敬请期待`);
   return spec;
 }
