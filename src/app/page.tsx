@@ -2,6 +2,7 @@ import Link from "next/link";
 import Countdown from "@/components/Countdown";
 import MatchTicker, { type TickerMatch } from "@/components/MatchTicker";
 import HomeFeed from "@/components/HomeFeed";
+import HomeNewsStrip from "@/components/HomeNewsStrip";
 import { getWorldCupMatches, type FdMatchStatus } from "@/lib/football-data";
 import { teamNameZh } from "@/lib/team-names";
 
@@ -98,6 +99,9 @@ export default async function Home() {
           </Link>
         </div>
       </section>
+
+      {/* 世界杯快讯 */}
+      <HomeNewsStrip />
 
       {/* HomeFeed：今日/昨日比赛 + 弹幕 */}
       <HomeFeed />

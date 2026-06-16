@@ -41,9 +41,9 @@ export default function NewsFlash({ limit = 20 }: { limit?: number }) {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-16 animate-pulse rounded-xl bg-raised" />
+      <div className="space-y-2">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="h-14 animate-pulse rounded-xl bg-raised" />
         ))}
       </div>
     );
@@ -51,61 +51,54 @@ export default function NewsFlash({ limit = 20 }: { limit?: number }) {
 
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-line py-10 text-center text-sm text-faint">
-        暂无快讯，稍后自动更新
+      <div className="rounded-xl border border-dashed border-line py-12 text-center text-sm text-faint">
+        暂无快讯，明日早间自动更新
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
       {items.map((item) => {
         const isOpen = expanded.has(item.id);
         return (
-          <div
+          <button
             key={item.id}
-            className="card rounded-xl border border-line bg-surface p-4 transition-shadow hover:shadow-sm"
+            onClick={() => toggle(item.id)}
+            className="w-full px-4 py-3.5 text-left transition-colors hover:bg-raised/60"
           >
-            <button
-              onClick={() => toggle(item.id)}
-              className="w-full text-left"
-            >
-              <div className="flex items-start gap-3">
-                {/* 左侧时间轴点 */}
-                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-neon" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-ink leading-snug">{item.title}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] text-faint">{item.source_name}</span>
-                    <span className="text-[11px] text-faint">·</span>
-                    <span className="font-num text-[11px] text-faint">{timeAgo(item.published_at)}</span>
-                    {item.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="chip !text-[10px] !py-0">{tag}</span>
-                    ))}
-                  </div>
+            <div className="flex items-start gap-3">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neon" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium leading-snug text-ink">{item.title}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] text-faint">{item.source_name}</span>
+                  <span className="text-[11px] text-faint">·</span>
+                  <span className="font-num text-[11px] text-faint">{timeAgo(item.published_at)}</span>
+                  {item.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="chip !py-0 !text-[10px]">{tag}</span>
+                  ))}
                 </div>
-                <span className={`shrink-0 text-faint transition-transform text-xs mt-0.5 ${isOpen ? "rotate-180" : ""}`}>
-                  ▾
-                </span>
-              </div>
-            </button>
-
-            {isOpen && (
-              <div className="mt-3 ml-5 border-l-2 border-neon/20 pl-3">
-                <p className="text-xs text-mut leading-relaxed">{item.summary}</p>
-                {item.source_url && (
+                {isOpen && item.summary && (
+                  <p className="mt-2 text-xs leading-relaxed text-mut">{item.summary}</p>
+                )}
+                {isOpen && item.source_url && (
                   <a
                     href={item.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2 inline-block text-[11px] text-neon underline underline-offset-2 hover:brightness-110"
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1.5 inline-block text-[11px] text-neon hover:underline"
                   >
                     查看原文 →
                   </a>
                 )}
               </div>
-            )}
-          </div>
+              <span className={`shrink-0 text-[10px] text-faint transition-transform mt-1 ${isOpen ? "rotate-180" : ""}`}>
+                ▾
+              </span>
+            </div>
+          </button>
         );
       })}
     </div>

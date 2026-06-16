@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/",           label: "首页"     },
   { href: "/deduction",  label: "推演"     },
   { href: "/matches",    label: "赛程"     },
+  { href: "/news",       label: "快讯"     },
   { href: "/calculator", label: "赔率工具" },
   { href: "/games",      label: "积分竞猜" },
   { href: "/pricing",    label: "订阅"     },
