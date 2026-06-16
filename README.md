@@ -2,8 +2,7 @@
 
 > 面向中国用户的 2026 美加墨世界杯数据工具站，提供赛程速览、赔率分析、AI 深度推演、积分竞猜等功能。
 
-**线上地址：** https://jingcai-beta.vercel.app
-
+**线上地址：** https://songningfu.site/
 ---
 
 ## 项目亮点
