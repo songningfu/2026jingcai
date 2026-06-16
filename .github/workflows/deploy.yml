@@ -30,6 +30,10 @@ jobs:
             echo "=== build ==="
             npm run build
 
+            echo "=== copy static files ==="
+            cp -r .next/static .next/standalone/.next/static
+            cp -r public .next/standalone/public
+
             echo "=== pm2 restart ==="
             pm2 restart jingcai || pm2 start .next/standalone/server.js --name jingcai
 
