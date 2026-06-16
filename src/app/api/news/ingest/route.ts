@@ -28,8 +28,8 @@ export async function POST(req: NextRequest) {
   let skipped = 0;
 
   for (const item of items) {
-    const cleanTitle = filterContent(item.title);
-    const cleanSummary = filterContent(item.summary);
+    const cleanTitle = filterContent(item.title).text;
+    const cleanSummary = filterContent(item.summary).text;
 
     const { error } = await db.from("news_flash").upsert(
       {

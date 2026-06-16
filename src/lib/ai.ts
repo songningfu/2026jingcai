@@ -35,7 +35,13 @@ export async function chatJSONWith(opts: {
       throw new Error(`${opts.label ?? opts.model} 请求失败: ${res.status} ${await res.text()}`);
     }
     const data = await res.json();
-    const content: string | undefined = data.choices?.[0]?.message?.content;
+    const msg = data.choices?.[0]?.message;
+    // 推理模型（deepseek-r1等）有时 content 为空，答案在 reasoning_content 末尾的 JSON 块里
+    let content: string = msg?.content ?? "";
+    if (!content && msg?.reasoning_content) {
+      const m = (msg.reasoning_content as string).match(/\{[\s\S]*\}/);
+      if (m) content = m[0];
+    }
     if (!content) throw new Error(`${opts.label ?? opts.model} 返回为空`);
     return content;
   } finally {
