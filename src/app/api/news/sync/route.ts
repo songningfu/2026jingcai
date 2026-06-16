@@ -49,10 +49,10 @@ async function translateBatch(items: Array<{ title: string; summary: string }>) 
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: "你是体育新闻翻译助手。将英文世界杯新闻翻译成中文。只输出 JSON，不要任何解释。" },
-        { role: "user", content: `将以下条目翻译成中文，直接输出 JSON 对象，格式：{"items":[{"i":0,"title":"中文","summary":"中文"}]}\n\n${JSON.stringify(payload)}` },
+        { role: "system", content: "你是世界杯体育新闻编辑。将英文新闻翻译并改写成中文，标题简洁有力，摘要用2-3句话具体说明事件经过和关键信息，不要泛泛而谈。只输出 JSON，不要任何解释。" },
+        { role: "user", content: `处理以下新闻条目，直接输出 JSON 对象，格式：{"items":[{"i":0,"title":"中文标题","summary":"2-3句具体摘要"}]}\n\n${JSON.stringify(payload)}` },
       ],
-      max_tokens: 2000,
+      max_tokens: 3000,
     }),
   });
   if (!res.ok) throw new Error(`translate API error: ${res.status}`);
@@ -86,12 +86,17 @@ export async function GET(req: NextRequest) {
 
       if (allItems.length === 0) continue;
 
-      // 批量翻译
-      let translated: Map<number, { title: string; summary: string }> = new Map();
-      try {
-        translated = await translateBatch(allItems);
-      } catch (e) {
-        console.error("[news/sync] translate error:", e);
+      // 分批翻译，每批 8 条
+      const translated: Map<number, { title: string; summary: string }> = new Map();
+      const BATCH = 8;
+      for (let b = 0; b < allItems.length; b += BATCH) {
+        const slice = allItems.slice(b, b + BATCH).map((it, j) => ({ ...it, _idx: b + j }));
+        try {
+          const batchResult = await translateBatch(slice.map(it => ({ title: it.title, summary: it.summary })));
+          batchResult.forEach((v, k) => translated.set(slice[k]._idx, v));
+        } catch (e) {
+          console.error("[news/sync] translate error:", e);
+        }
       }
 
       for (let idx = 0; idx < allItems.length; idx++) {
