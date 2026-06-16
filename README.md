@@ -63,7 +63,7 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 + Supabase (PostgreSQL)，
 | 语言 | TypeScript |
 | 样式 | Tailwind CSS 4（自定义设计令牌系统）|
 | 数据库 | Supabase (PostgreSQL + RLS) |
-| AI | DeepSeek API (OpenAI 兼容接口) |
+| AI | 大模型 API (OpenAI 兼容接口) |
 | 部署 | Vercel (sin1) + 腾讯云香港轻量服务器 + PM2 |
 | 定时任务 | cron-job.org + GitHub Actions |
 | 大陆数据采集 | 阿里云函数计算 FC |
