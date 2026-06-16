@@ -1,42 +1,76 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-/** GET → 推演页比赛列表：未开赛的近期场次（含中文队名） */
-
-interface TeamRef {
-  name_zh?: string | null;
-}
-function one<T>(v: T | T[] | null): T | null {
-  return Array.isArray(v) ? (v[0] ?? null) : v;
-}
+export const runtime = "nodejs";
+export const revalidate = 60;
 
 export async function GET() {
   try {
     const db = supabaseAdmin();
-    const { data, error } = await db
-      .from("matches")
-      .select(
-        "id, kickoff_at, group_name, stage, home:teams!matches_home_team_id_fkey(name_zh), away:teams!matches_away_team_id_fkey(name_zh)",
-      )
-      .eq("status", "scheduled")
-      .gte("kickoff_at", new Date().toISOString())
-      .order("kickoff_at")
-      .limit(20);
-    if (error) throw new Error(error.message);
+    const now = new Date().toISOString();
+    const window = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
-    const matches = (data ?? []).map((m) => ({
-      id: m.id,
-      home: one(m.home as TeamRef | TeamRef[] | null)?.name_zh ?? "待定",
-      away: one(m.away as TeamRef | TeamRef[] | null)?.name_zh ?? "待定",
-      kickoff: m.kickoff_at as string,
-      group: (m.group_name as string | null) ?? null,
-      stage: (m.stage as string) ?? "group",
-    }));
-    return NextResponse.json({ ok: true, matches });
+    const { data: matchRows, error } = await db
+      .from("matches")
+      .select("id, home_team:teams!matches_home_team_id_fkey(id, name_zh, logo_url), away_team:teams!matches_away_team_id_fkey(id, name_zh, logo_url), kickoff_at, group_name, stage, status, home_score, away_score")
+      .gte("kickoff_at", now)
+      .lte("kickoff_at", window)
+      .in("status", ["scheduled", "live"])
+      .not("home_team_id", "is", null)
+      .not("away_team_id", "is", null)
+      .order("kickoff_at", { ascending: true })
+      .limit(100);
+
+    if (error) throw error;
+
+    const matchIds = (matchRows ?? []).map((m: Record<string, unknown>) => m.id as number);
+
+    // 获取这批比赛的最新赔率
+    const { data: oddsRows } = matchIds.length
+      ? await db
+          .from("odds")
+          .select("match_id, outcome, odd, captured_at")
+          .in("match_id", matchIds)
+          .eq("play_type", "whl")
+          .order("captured_at", { ascending: false })
+          .limit(matchIds.length * 9)
+      : { data: [] };
+
+    // 每场比赛取最新一组赔率
+    const oddsMap = new Map<number, { win?: number; draw?: number; loss?: number }>();
+    for (const row of oddsRows ?? []) {
+      const r = row as { match_id: number; outcome: string; odd: number };
+      if (!oddsMap.has(r.match_id)) oddsMap.set(r.match_id, {});
+      const entry = oddsMap.get(r.match_id)!;
+      if (r.outcome === "主胜" && entry.win === undefined) entry.win = r.odd;
+      if (r.outcome === "平" && entry.draw === undefined) entry.draw = r.odd;
+      if (r.outcome === "客胜" && entry.loss === undefined) entry.loss = r.odd;
+    }
+
+    const matches = (matchRows ?? []).map((m: Record<string, unknown>) => {
+      const homeTeam = m.home_team as { id: number; name_zh: string; logo_url: string | null } | null;
+      const awayTeam = m.away_team as { id: number; name_zh: string; logo_url: string | null } | null;
+      const id = m.id as number;
+      const odds = oddsMap.get(id);
+      return {
+        id,
+        home: homeTeam?.name_zh ?? "待定",
+        away: awayTeam?.name_zh ?? "待定",
+        homeLogo: homeTeam?.logo_url ?? null,
+        awayLogo: awayTeam?.logo_url ?? null,
+        kickoff: m.kickoff_at,
+        group: m.group_name ?? null,
+        stage: m.stage ?? "group",
+        homeScore: typeof m.home_score === "number" ? m.home_score : null,
+        awayScore: typeof m.away_score === "number" ? m.away_score : null,
+        odds: odds?.win && odds?.draw && odds?.loss
+          ? { win: odds.win, draw: odds.draw, loss: odds.loss }
+          : null,
+      };
+    });
+
+    return NextResponse.json({ matches });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, matches: [], error: e instanceof Error ? e.message : "服务异常" },
-      { status: 500 },
-    );
+    return NextResponse.json({ matches: [], error: String(e) }, { status: 200 });
   }
 }

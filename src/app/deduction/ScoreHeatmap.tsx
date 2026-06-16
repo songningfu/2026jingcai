@@ -1,75 +1,88 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+interface Score {
+  home: number;
+  away: number;
+  prob: number;
+}
 
 interface Props {
-  scores: { home: number; away: number; prob: number }[];
+  scores: Score[];
   homeLabel: string;
   awayLabel: string;
 }
 
+const MAX_G = 5;
+
 export default function ScoreHeatmap({ scores, homeLabel, awayLabel }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const DPR = window.devicePixelRatio || 1;
-    const SIZE = 6;
-    const CELL = 44;
-    const OX = CELL * 1.5, OY = CELL * 1.5;
-    const W = SIZE * CELL + OX, H = SIZE * CELL + OY;
-    canvas.width = W * DPR; canvas.height = H * DPR;
-    canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
-    ctx.scale(DPR, DPR);
-    ctx.clearRect(0, 0, W, H);
-
-    const mat: number[][] = Array.from({ length: SIZE }, () => new Array(SIZE).fill(0));
-    let maxP = 0;
-    scores.forEach(({ home, away, prob }) => {
-      if (home < SIZE && away < SIZE) { mat[home][away] = prob; if (prob > maxP) maxP = prob; }
-    });
-    if (maxP === 0) maxP = 0.001;
-
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = `bold ${CELL * 0.32}px -apple-system,sans-serif`; ctx.fillStyle = "#98a69e";
-    for (let a = 0; a < SIZE; a++) ctx.fillText(String(a), OX + a * CELL + CELL / 2, OY - CELL * 0.6);
-    for (let h = 0; h < SIZE; h++) ctx.fillText(String(h), OX - CELL * 0.6, OY + h * CELL + CELL / 2);
-
-    ctx.font = `${CELL * 0.26}px -apple-system,sans-serif`; ctx.fillStyle = "#5c6b63";
-    ctx.save(); ctx.translate(OX - CELL * 1.1, OY + (SIZE * CELL) / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText(homeLabel.slice(0, 4), 0, 0); ctx.restore();
-    ctx.fillText(awayLabel.slice(0, 4), OX + (SIZE * CELL) / 2, OY - CELL * 1.1);
-
-    for (let h = 0; h < SIZE; h++) {
-      for (let a = 0; a < SIZE; a++) {
-        const p = mat[h][a]; if (p < 0.001) continue;
-        const ratio = p / maxP;
-        const cx = OX + a * CELL + CELL / 2, cy = OY + h * CELL + CELL / 2;
-        const r = CELL * 0.42 * Math.sqrt(ratio);
-        const alpha = 0.15 + ratio * 0.7;
-        const isTop = ratio > 0.55;
-        const color = isTop ? `rgba(12,157,104,${alpha})` : `rgba(185,122,10,${alpha * 0.8})`;
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
-        g.addColorStop(0, color); g.addColorStop(1, "transparent");
-        ctx.beginPath(); ctx.arc(cx, cy, r * 2, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
-        if (ratio > 0.3) {
-          ctx.font = `bold ${CELL * 0.24}px -apple-system,sans-serif`;
-          ctx.fillStyle = isTop ? "#0c9d68" : "#b97a0a";
-          ctx.fillText(`${(p * 100).toFixed(1)}%`, cx, cy);
-        }
-      }
-    }
-  }, [scores, homeLabel, awayLabel]);
+  const matrix: number[][] = Array.from({ length: MAX_G + 1 }, () =>
+    Array(MAX_G + 1).fill(0),
+  );
+  for (const s of scores) {
+    if (s.home <= MAX_G && s.away <= MAX_G) matrix[s.home][s.away] = s.prob;
+  }
+  const maxProb = Math.max(...scores.map((s) => s.prob), 0.001);
+  const top3 = [...scores].sort((a, b) => b.prob - a.prob).slice(0, 3);
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <canvas ref={canvasRef} className="max-w-full" />
-      <p className="text-xs text-faint">气泡大小 ∝ 概率 · 横轴客队进球 · 纵轴主队进球</p>
+    <div className="space-y-3">
+      <div className="overflow-x-auto">
+        <table className="mx-auto border-collapse text-center text-xs">
+          <thead>
+            <tr>
+              <th className="w-8 pb-1 text-faint font-normal">
+                <span className="block text-[10px] leading-tight">主↓<br />客→</span>
+              </th>
+              {Array.from({ length: MAX_G + 1 }, (_, j) => (
+                <th key={j} className="w-8 pb-1 font-num font-normal text-faint">{j}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: MAX_G + 1 }, (_, i) => (
+              <tr key={i}>
+                <td className="pr-1 font-num text-faint">{i}</td>
+                {Array.from({ length: MAX_G + 1 }, (_, j) => {
+                  const p = matrix[i][j];
+                  const intensity = p / maxProb;
+                  const isTop = top3.some((s) => s.home === i && s.away === j);
+                  return (
+                    <td key={j} className="p-0.5">
+                      <div
+                        className="flex h-7 w-7 items-center justify-center rounded-md font-num text-[10px] tabular-nums transition-all"
+                        style={{
+                          background: p > 0
+                            ? `rgba(12,157,104,${0.08 + intensity * 0.72})`
+                            : "var(--color-raised)",
+                          color: intensity > 0.6 ? "white" : "var(--color-mut)",
+                          fontWeight: isTop ? 700 : 400,
+                          outline: isTop ? "1.5px solid rgba(12,157,104,0.7)" : "none",
+                        }}
+                        title={p > 0 ? `${i}-${j}: ${(p * 100).toFixed(2)}%` : ""}
+                      >
+                        {p > 0.004 ? `${(p * 100).toFixed(1)}` : ""}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-1 text-center text-[10px] text-faint">
+          横轴{awayLabel}进球 / 纵轴{homeLabel}进球
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        {top3.map((s, idx) => (
+          <div key={`${s.home}-${s.away}-${idx}`} className="flex-1 rounded-lg border border-line bg-raised py-2 text-center">
+            <div className="font-num text-base font-bold tabular-nums text-ink">{s.home} - {s.away}</div>
+            <div className="mt-0.5 text-[11px] text-faint">{(s.prob * 100).toFixed(1)}%</div>
+            {idx === 0 && <div className="mt-0.5 text-[10px] text-neon">最可能</div>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

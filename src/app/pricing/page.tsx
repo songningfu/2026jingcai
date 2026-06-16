@@ -1,16 +1,34 @@
-import type { Metadata } from "next";
+"use client";
 import Link from "next/link";
-import { SUB_PLANS } from "@/lib/subscriptions";
-
-export const metadata: Metadata = {
-  title: "订阅",
-  description:
-    "球译订阅 Free / Pro / Max：解锁大模型深度推演、签到积分加成与尊享标识。订阅为分析工具使用权益，非预测结果，不构成购彩建议。",
-};
+import { useState, useEffect } from "react";
+import { SUB_PLANS, activeTier, type SubTier } from "@/lib/subscriptions";
+import LoginModal from "@/app/account/LoginModal";
 
 const ORDER = ["free", "pro", "max"] as const;
 
 export default function PricingPage() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userTier, setUserTier] = useState<SubTier | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
+
+  useEffect(() => {
+    const id = localStorage.getItem("qiuyi_device_id");
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    fetch("/api/account/me", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId: id }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && (data.account?.username || data.account?.email)) {
+          setIsLoggedIn(true);
+          setUserTier(activeTier(data.account?.sub_type, data.account?.sub_expires));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       <div className="text-center">
@@ -54,7 +72,7 @@ export default function PricingPage() {
               </div>
               <div className="mt-3">
                 <span className="text-2xl font-bold text-ink">{plan.priceLabel}</span>
-                {tier !== "free" && <span className="ml-1 text-xs text-faint">· 资质就绪后开放</span>}
+                {tier !== "free" && <span className="ml-1 text-xs text-mut">/ 世界杯全程</span>}
               </div>
 
               <ul className="mt-5 flex-1 space-y-2.5 text-sm">
@@ -67,24 +85,41 @@ export default function PricingPage() {
               </ul>
 
               <div className="mt-6">
-                {tier === "free" ? (
+                {/* 已拥有此档位（仅付费档） */}
+                {isLoggedIn && tier !== "free" && userTier === tier ? (
+                  <div className="flex items-center justify-center gap-1.5 rounded-lg border border-neon/40 bg-neon/5 py-2.5 text-sm font-semibold text-neon">
+                    <span>✓</span>
+                    <span>已拥有</span>
+                  </div>
+                ) : tier === "free" ? (
                   <Link
                     href="/games"
-                    className="block rounded-lg border border-line-strong py-2.5 text-center text-sm font-medium text-ink transition hover:border-neon/50"
+                    className="inline-flex items-center justify-center rounded-lg border border-line-strong px-3 py-2.5 text-sm font-medium text-ink transition hover:border-neon/50 sm:min-h-0 sm:min-w-0"
                   >
                     免费畅玩
                   </Link>
-                ) : (
+                ) : isLoggedIn ? (
                   <Link
-                    href="/account"
-                    className={`block rounded-lg py-2.5 text-center text-sm font-semibold transition ${
+                    href="/buy"
+                    className={`inline-flex items-center justify-center rounded-lg px-3 py-2.5 text-sm font-semibold transition sm:min-h-0 sm:min-w-0 ${
                       isPro
                         ? "bg-neon text-white hover:brightness-110"
                         : "bg-amber text-white hover:brightness-110"
                     }`}
                   >
-                    去开通
+                    立即开通
                   </Link>
+                ) : (
+                  <button
+                    onClick={() => setShowLogin(true)}
+                    className={`inline-flex items-center justify-center rounded-lg px-3 py-2.5 text-sm font-semibold transition sm:min-h-0 sm:min-w-0 ${
+                      isPro
+                        ? "bg-neon text-white hover:brightness-110"
+                        : "bg-amber text-white hover:brightness-110"
+                    }`}
+                  >
+                    登录后开通
+                  </button>
                 )}
               </div>
             </div>
@@ -92,22 +127,7 @@ export default function PricingPage() {
         })}
       </div>
 
-      <div className="card mt-6 p-5">
-        <h3 className="text-sm font-semibold text-ink">关于开通方式</h3>
-        <p className="mt-2 text-xs leading-relaxed text-mut">
-          正式收款功能正在完成合规资质（规格第 8.3 条），暂未上线在线支付。当前 Pro / Max 通过
-          <strong className="text-ink">「开通码」手动开通</strong>——在
-          <Link href="/account" className="text-neon hover:underline">
-            账户
-          </Link>
-          页输入开通码即可激活。我们不会在资质就绪前设计任何规避资质的收款方式。
-        </p>
-      </div>
-
-      <p className="mt-6 text-center text-xs leading-relaxed text-faint">
-        订阅权益为站内 AI 分析工具的使用权，与积分体系相互独立；积分纯虚拟，不可充值、不可提现、不可兑换现金。
-        所有分析仅供参考，不构成任何购彩建议，理性娱乐，未满 18 周岁禁止购彩。
-      </p>
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setIsLoggedIn(true); setShowLogin(false); }} />}
     </div>
   );
 }

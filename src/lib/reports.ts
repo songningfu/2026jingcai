@@ -8,6 +8,7 @@ import "server-only";
 import { chatJSON } from "./ai";
 import { DISCLAIMER, impliedProbabilities } from "./odds";
 import { filterContent } from "./banned-terms";
+import { runDeepModel } from "./deep-model";
 import { supabaseAdmin } from "./supabase";
 
 /** 6.2 报告 JSON 结构 */
@@ -19,6 +20,8 @@ export interface PreviewReport {
     score: string;
     confidence: "低" | "中" | "高";
     reasoning: string;
+    /** 总进球数最可能档位（体彩 TTG 口径，如「2球」「3球」「7+球」）——由统计模型计算，非 AI 猜测 */
+    total_goals?: string;
   };
   ai_preview: string;
   odds_reading: string;
@@ -104,6 +107,9 @@ function sanitizeReport(report: PreviewReport): { report: PreviewReport; hits: s
             score: clean(report.prediction.score),
             confidence: report.prediction.confidence,
             reasoning: clean(report.prediction.reasoning),
+            ...(report.prediction.total_goals
+              ? { total_goals: clean(report.prediction.total_goals) }
+              : {}),
           }
         : undefined,
       ai_preview: clean(report.ai_preview),
@@ -306,6 +312,27 @@ export async function generatePreviewReport(
 
   const raw = await chatJSON({ system: SYSTEM_PROMPT, user: userPrompt });
   const parsed = parsePreviewReport(raw);
+
+  // 用统计模型计算「总进球数最可能档位」注入预测（比 AI 猜测更稳更准）
+  if (parsed.prediction) {
+    const whlInput = whlLatest.every(Boolean)
+      ? { win: Number(whlLatest[0]!.odd), draw: Number(whlLatest[1]!.odd), loss: Number(whlLatest[2]!.odd) }
+      : null;
+    const TTG_LABELS = ["0球", "1球", "2球", "3球", "4球", "5球", "6球", "7+球"];
+    const ttgArr = TTG_LABELS.map((label) => {
+      const r = (odds ?? []).find((x) => x.play_type === "totalgoals" && x.outcome === label);
+      return r ? Number(r.odd) : null;
+    });
+    const ttgInput = ttgArr.some((v) => v !== null) ? ttgArr : null;
+    if (whlInput || ttgInput) {
+      const model = runDeepModel(whlInput, undefined, undefined, ttgInput);
+      const topIdx = model.totalGoals
+        .map((p, i) => ({ i, p }))
+        .sort((a, b) => b.p - a.p)[0]?.i ?? -1;
+      if (topIdx >= 0) parsed.prediction.total_goals = TTG_LABELS[topIdx];
+    }
+  }
+
   const { report, hits } = sanitizeReport(parsed);
 
   const { error: upsertErr } = await db.from("reports").upsert(

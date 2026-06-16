@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { DISCLAIMER, mOfNTotalOdds } from "@/lib/odds";
 import type {
   SportteryMatch,
@@ -60,6 +60,44 @@ function probabilityAtLeast(probabilities: number[], target: number): number {
   return dp.slice(target).reduce((sum, value) => sum + value, 0);
 }
 
+function OutcomeBtn({
+  outcome, row, match, selections, onToggle,
+}: {
+  outcome: SportteryOutcome;
+  row: SportteryOddsRow;
+  match: SportteryMatch;
+  selections: Map<string, Selection>;
+  onToggle: (match: SportteryMatch, row: SportteryOddsRow, outcome: SportteryOutcome) => void;
+  compact?: boolean;
+}) {
+  const key = selectionKey(match, row, outcome);
+  const selected = selections.has(key);
+  const disabled = outcome.odd === null;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onToggle(match, row, outcome)}
+      className={`block rounded-lg border px-1 py-2 text-center transition sm:min-h-0 sm:min-w-0 ${
+        selected
+          ? "border-neon bg-neon/10 shadow-[0_0_8px_rgba(12,157,104,0.15)]"
+          : disabled
+            ? "border-line/50 bg-surface text-faint/40"
+            : "border-line bg-raised hover:border-neon/50"
+      }`}
+      aria-pressed={selected}
+    >
+      <span className={`block text-[11px] font-medium leading-none ${selected ? "text-neon" : "text-mut"}`}>{outcome.label}</span>
+      <span className={`font-num mt-1 block text-sm font-bold tabular-nums leading-none ${selected ? "text-neon" : "text-amber"}`}>
+        {outcome.odd?.toFixed(2) ?? "--"}
+      </span>
+      <span className={`font-num mt-0.5 block text-[10px] tabular-nums leading-none ${selected ? "text-neon/80" : "text-neon/60"}`}>
+        {pct(outcome.probability)}
+      </span>
+    </button>
+  );
+}
+
 function MatchOdds({
   match,
   selections,
@@ -69,6 +107,18 @@ function MatchOdds({
   selections: Map<string, Selection>;
   onToggle: (match: SportteryMatch, row: SportteryOddsRow, outcome: SportteryOutcome) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded(v => !v), []);
+
+  // 主要行：优先 HAD，其次 HHAD
+  const hadRow = match.rows.find(r => r.poolCode === "HAD") ?? match.rows.find(r => r.poolCode === "HHAD");
+  // 次要行：其余（不是主行的）
+  const extraRows = match.rows.filter(r => r.poolCode !== hadRow?.poolCode);
+  // HAD 中的平局结果
+  const drawOutcome = hadRow?.outcomes.find(o => o.key === "D" || o.label === "平");
+  // HAD 中胜/负
+  const mainOutcomes = hadRow?.outcomes.filter(o => o.key !== "D" && o.label !== "平") ?? [];
+
   return (
     <article className="border-t border-line">
       <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-4 sm:grid-cols-[6.5rem_1fr]">
@@ -83,53 +133,123 @@ function MatchOdds({
         </div>
 
         <div className="min-w-0">
-          <div className="mb-2 truncate text-center text-base font-semibold text-ink">
-            {match.home} <span className="px-2 text-faint">VS</span> {match.away}
+          <div className="mb-2 text-center">
+            <span className="text-base font-semibold text-ink">{match.home}</span>
+            {match.homeScore != null && match.awayScore != null ? (
+              <span className="font-num mx-2 text-xl font-bold tabular-nums text-live">
+                {match.homeScore}–{match.awayScore}
+              </span>
+            ) : (
+              <span className="px-2 text-faint">VS</span>
+            )}
+            <span className="text-base font-semibold text-ink">{match.away}</span>
           </div>
-          <div className="space-y-2">
-            {match.rows.map((row) => (
-              <div key={row.poolCode} className="grid grid-cols-[2.6rem_1fr] gap-2">
-                <div className="font-num flex items-center justify-center text-base font-semibold text-amber">
-                  [{row.handicapLabel}]
+
+          {/* 胜平负三格统一展示 */}
+          {hadRow && (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-xs font-medium text-mut">{hadRow.poolName}</span>
+                {extraRows.length > 0 && (
+                  <button
+                    onClick={toggle}
+                    className={`rounded-md px-2 py-0.5 text-xs font-medium transition ${
+                      expanded ? "bg-line text-mut hover:text-ink" : "bg-neon/10 text-neon hover:bg-neon/20"
+                    }`}
+                  >
+                    {expanded ? "收起 ▴" : "更多玩法 ▾"}
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {hadRow.outcomes.map(o => (
+                  <OutcomeBtn key={o.key} outcome={o} row={hadRow} match={match} selections={selections} onToggle={onToggle} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 展开：其余玩法 */}
+          {expanded && extraRows.map((row) => {
+            const isTTG = row.poolCode === "TTG";
+            const isMNTS = row.poolCode === "MNTS";
+            const isHHAD = row.poolCode === "HHAD";
+            const isCRS = row.poolCode === "CRS" || row.poolCode === "CSO";
+            // 比分玩法：按主场得分分组，列出所有比分组合
+            if (isCRS) {
+              // 只展示有赔率的比分，按主场进球数分组
+              const scoreGroups = new Map<number, typeof row.outcomes>();
+              for (const o of row.outcomes) {
+                if (o.odd === null) continue;
+                const m = o.key.match(/^s(\d{2})s(\d{2})/);
+                const home = m ? Number(m[1]) : -1;
+                const list = scoreGroups.get(home) ?? [];
+                list.push(o);
+                scoreGroups.set(home, list);
+              }
+              if (scoreGroups.size === 0) return null;
+              const sortedGroups = [...scoreGroups.entries()].sort(([a], [b]) => a - b);
+              return (
+                <div key={row.poolCode} className="mt-3">
+                  <div className="mb-2 text-xs font-medium text-mut">{row.poolName}</div>
+                  <div className="space-y-1.5">
+                    {sortedGroups.map(([homeGoals, outcomes]) => (
+                      <div key={homeGoals} className="flex items-center gap-2">
+                        <div className="w-8 shrink-0 text-center">
+                          <span className="font-num text-[10px] leading-tight text-faint">
+                            主{homeGoals}球
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {outcomes.map(o => {
+                            const selKey = selectionKey(match, row, o);
+                            const sel = selections.has(selKey);
+                            return (
+                              <button
+                                key={o.key}
+                                type="button"
+                                onClick={() => onToggle(match, row, o)}
+                                aria-pressed={sel}
+                                className={`block rounded-md border px-2 py-1 text-center transition sm:min-h-0 sm:min-w-0 ${
+                                  sel
+                                    ? "border-neon bg-neon/10 shadow-[0_0_8px_rgba(12,157,104,0.15)]"
+                                    : "border-line bg-raised hover:border-neon/40"
+                                }`}
+                              >
+                                <span className={`block text-[10px] leading-none ${sel ? "text-neon" : "text-mut"}`}>{o.label}</span>
+                                <span className={`font-num block text-sm font-bold leading-snug tabular-nums ${sel ? "text-neon" : "text-amber"}`}>
+                                  {o.odd?.toFixed(2) ?? "--"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {row.outcomes.map((outcome) => {
-                    const key = selectionKey(match, row, outcome);
-                    const selected = selections.has(key);
-                    const disabled = outcome.odd === null;
-                    return (
-                      <button
-                        key={outcome.key}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => onToggle(match, row, outcome)}
-                        className={`min-h-16 rounded-lg border px-1 py-1.5 text-center transition ${
-                          selected
-                            ? "border-neon bg-neon/10 text-neon shadow-[0_0_10px_rgba(12,157,104,0.18)]"
-                            : disabled
-                              ? "border-line/50 bg-surface text-faint/50"
-                              : "border-line bg-raised text-ink hover:border-neon/50"
-                        }`}
-                        aria-pressed={selected}
-                      >
-                        <span className="block text-sm font-medium">{outcome.label}</span>
-                        <span className="font-num block text-base font-bold tabular-nums text-amber">
-                          {outcome.odd?.toFixed(2) ?? "--"}
-                        </span>
-                        <span
-                          className={`font-num block text-[11px] tabular-nums ${
-                            selected ? "text-neon" : "text-neon/70"
-                          }`}
-                        >
-                          {pct(outcome.probability)}
-                        </span>
-                      </button>
-                    );
-                  })}
+              );
+            }
+            // 非比分玩法：过滤掉无赔率的选项
+            const validOutcomes = row.outcomes.filter(o => o.odd !== null);
+            if (validOutcomes.length === 0) return null;
+            return (
+              <div key={row.poolCode} className="mt-3">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="text-xs font-medium text-mut">{row.poolName}</span>
+                  {isHHAD && row.handicapLabel && row.handicapLabel !== "0" && (
+                    <span className="font-num text-xs font-semibold text-amber">[{row.handicapLabel}]</span>
+                  )}
+                </div>
+                <div className={`grid gap-1.5 ${isTTG ? "grid-cols-4" : "grid-cols-3"}`}>
+                  {validOutcomes.map(o => (
+                    <OutcomeBtn key={o.key} outcome={o} row={row} match={match} selections={selections} onToggle={onToggle} compact={isTTG || isMNTS} />
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
+
           <div className="mt-2 flex items-center justify-between text-xs text-faint">
             <span>{match.status === "Selling" ? "官方在售赔率" : match.status || "官方赔率"}</span>
             <span className="font-num">
@@ -242,28 +362,32 @@ export default function SportteryOddsBoard({
             暂时没有读取到官方赔率。可以稍后刷新，或检查官方计算器页面是否正常开放。
           </div>
         ) : (
-          payload.days.map((day) => (
-            <section key={day.businessDate} className="card mt-3 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="text-sm font-medium text-ink">
-                  {formatBusinessDate(day.businessDate)}
-                  <span className="ml-2 font-normal text-faint">共{day.matches.length}场比赛</span>
+          payload.days.map((day) => {
+            const wcMatches = day.matches.filter(m => m.league.includes("世界杯"));
+            if (wcMatches.length === 0) return null;
+            return (
+              <section key={day.businessDate} className="card mt-3 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="text-sm font-medium text-ink">
+                    {formatBusinessDate(day.businessDate)}
+                    <span className="ml-2 font-normal text-faint">共{wcMatches.length}场世界杯</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-neon">
+                    <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
+                    赔率已同步
+                  </span>
                 </div>
-                <span className="inline-flex items-center gap-1.5 text-xs text-neon">
-                  <span className="anim-pulse-dot h-2 w-2 rounded-full bg-neon" />
-                  赔率已同步
-                </span>
-              </div>
-              {day.matches.map((match) => (
-                <MatchOdds
-                  key={match.matchId}
-                  match={match}
-                  selections={selections}
-                  onToggle={toggle}
-                />
-              ))}
-            </section>
-          ))
+                {wcMatches.map((match) => (
+                  <MatchOdds
+                    key={match.matchId}
+                    match={match}
+                    selections={selections}
+                    onToggle={toggle}
+                  />
+                ))}
+              </section>
+            );
+          })
         )}
 
         <p className="mt-4 rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">

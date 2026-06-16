@@ -7,11 +7,12 @@ import type {
   SportteryOddsPayload,
   SportteryOddsRow,
   SportteryOutcome,
-  SportteryOutcomeKey,
 } from "./sporttery-types";
 
+type SportteryOutcomeKey = string;
+
 const SPORTTERY_ODDS_URL =
-  "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c&poolCode=had,hhad";
+  "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c&poolCode=had,hhad,ttg,mnts,crs";
 
 interface RawSportteryResponse {
   errorCode?: string;
@@ -37,6 +38,19 @@ interface RawSportteryPoolOdds {
   updateTime?: string;
 }
 
+interface RawSportteryTTG {
+  s0?: string; s1?: string; s2?: string; s3?: string;
+  s4?: string; s5?: string; s6?: string; s7?: string;
+  updateDate?: string; updateTime?: string;
+}
+
+interface RawSportteryMNTS {
+  hh?: string; hd?: string; ha?: string;
+  dh?: string; dd?: string; da?: string;
+  ah?: string; ad?: string; aa?: string;
+  updateDate?: string; updateTime?: string;
+}
+
 interface RawSportteryMatch {
   matchId: number;
   matchNumStr?: string;
@@ -53,6 +67,10 @@ interface RawSportteryMatch {
   awayTeamAllName?: string;
   had?: RawSportteryPoolOdds;
   hhad?: RawSportteryPoolOdds;
+  ttg?: RawSportteryTTG;
+  mnts?: RawSportteryMNTS;
+  // 比分：key 格式 s{home}{away}（如 s10=1:0），特殊 sw/sd/sa=其他
+  crs?: Record<string, string>;
 }
 
 function parseOdd(value: string | undefined): number | null {
@@ -93,6 +111,102 @@ function buildRow(
   };
 }
 
+const TTG_KEYS: Array<keyof RawSportteryTTG> = ["s0","s1","s2","s3","s4","s5","s6","s7"];
+const TTG_LABELS = ["0球","1球","2球","3球","4球","5球","6球","7+球"];
+
+function buildTTGRow(raw: RawSportteryTTG | undefined): SportteryOddsRow | null {
+  if (!raw) return null;
+  const odds = TTG_KEYS.map((k) => parseOdd(raw[k] as string | undefined));
+  if (!odds.some((o) => o !== null)) return null;
+  const validOdds = odds.map((o) => o ?? null);
+  const allValid = validOdds.every((o) => o !== null);
+  const implied = allValid ? impliedProbabilities(validOdds as number[]) : null;
+  return {
+    poolCode: "TTG",
+    poolName: "总进球",
+    handicapLabel: "",
+    updateAt: raw.updateDate && raw.updateTime ? `${raw.updateDate} ${raw.updateTime}` : null,
+    outcomes: TTG_KEYS.map((k, i) => ({
+      key: k,
+      label: TTG_LABELS[i],
+      odd: odds[i],
+      probability: implied?.probs[i] ?? null,
+    })),
+  };
+}
+
+const MNTS_KEYS: Array<keyof RawSportteryMNTS> = ["hh","hd","ha","dh","dd","da","ah","ad","aa"];
+const MNTS_LABELS = ["主/主","主/平","主/客","平/主","平/平","平/客","客/主","客/平","客/客"];
+
+function buildMNTSRow(raw: RawSportteryMNTS | undefined): SportteryOddsRow | null {
+  if (!raw) return null;
+  const odds = MNTS_KEYS.map((k) => parseOdd(raw[k] as string | undefined));
+  if (!odds.some((o) => o !== null)) return null;
+  const allValid = odds.every((o) => o !== null);
+  const implied = allValid ? impliedProbabilities(odds as number[]) : null;
+  return {
+    poolCode: "MNTS",
+    poolName: "半全场",
+    handicapLabel: "",
+    updateAt: raw.updateDate && raw.updateTime ? `${raw.updateDate} ${raw.updateTime}` : null,
+    outcomes: MNTS_KEYS.map((k, i) => ({
+      key: k,
+      label: MNTS_LABELS[i],
+      odd: odds[i],
+      probability: implied?.probs[i] ?? null,
+    })),
+  };
+}
+
+// 体彩 CRS key 格式：s{HH}s{AA} 或 s{HH}s{AA}f（"f"=其他）
+// 例：s01s00 → 1:0，s00s01 → 0:1，s00s00f → 平局其他
+function parseCrsKey(key: string): { home: number; away: number; other: boolean } | null {
+  const m = key.match(/^s(\d{2})s(\d{2})(f?)$/);
+  if (!m) return null;
+  return { home: Number(m[1]), away: Number(m[2]), other: m[3] === "f" };
+}
+
+function crsKeyToLabel(key: string): string {
+  const p = parseCrsKey(key);
+  if (!p) return key;
+  const score = `${p.home}:${p.away}`;
+  return p.other ? `${score}+` : score;
+}
+
+// 排序：先按主场进球数，再按客场进球数，"f"（其他）排到同组末尾
+function crsSortKey(key: string): number {
+  const p = parseCrsKey(key);
+  if (!p) return 9999;
+  return p.home * 1000 + p.away * 10 + (p.other ? 1 : 0);
+}
+
+function buildCRSRow(raw: Record<string, string> | undefined): SportteryOddsRow | null {
+  if (!raw) return null;
+  const entries = Object.entries(raw)
+    .filter(([k]) => k !== "updateDate" && k !== "updateTime" && parseCrsKey(k) !== null)
+    .sort(([a], [b]) => crsSortKey(a) - crsSortKey(b));
+  if (entries.length === 0) return null;
+
+  const odds = entries.map(([, v]) => parseOdd(v));
+  if (!odds.some((o) => o !== null)) return null;
+
+  const allValid = odds.every((o) => o !== null);
+  const implied = allValid ? impliedProbabilities(odds as number[]) : null;
+
+  return {
+    poolCode: "CRS",
+    poolName: "比分",
+    handicapLabel: "",
+    updateAt: raw.updateDate && raw.updateTime ? `${raw.updateDate} ${raw.updateTime}` : null,
+    outcomes: entries.map(([k], i) => ({
+      key: k,
+      label: crsKeyToLabel(k),
+      odd: odds[i],
+      probability: implied?.probs[i] ?? null,
+    })),
+  };
+}
+
 function hasAnyOdds(row: SportteryOddsRow): boolean {
   return row.outcomes.some((outcome) => outcome.odd !== null);
 }
@@ -100,6 +214,9 @@ function hasAnyOdds(row: SportteryOddsRow): boolean {
 function mapMatch(raw: RawSportteryMatch): SportteryMatch {
   const had = buildRow("HAD", "胜平负", raw.had);
   const hhad = buildRow("HHAD", "让球胜平负", raw.hhad);
+  const ttg = buildTTGRow(raw.ttg);
+  const mnts = buildMNTSRow(raw.mnts);
+  const crs = buildCRSRow(raw.crs);
 
   return {
     matchId: raw.matchId,
@@ -113,7 +230,7 @@ function mapMatch(raw: RawSportteryMatch): SportteryMatch {
     home: raw.homeTeamAllName || raw.homeTeamAbbName || "主队",
     away: raw.awayTeamAllName || raw.awayTeamAbbName || "客队",
     status: raw.matchStatus ?? "",
-    rows: [had, hhad].filter(hasAnyOdds),
+    rows: [had, hhad, ttg, mnts, crs].filter((r): r is SportteryOddsRow => r !== null && hasAnyOdds(r)),
   };
 }
 

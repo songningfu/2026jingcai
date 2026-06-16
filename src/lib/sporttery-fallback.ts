@@ -12,14 +12,29 @@ import type {
   SportteryMatchDay,
   SportteryOddsPayload,
   SportteryOddsRow,
-  SportteryOutcomeKey,
 } from "./sporttery-types";
 
-const OUTCOME_ORDER: { key: SportteryOutcomeKey; label: "胜" | "平" | "负"; db: string }[] = [
+const OUTCOME_ORDER: { key: string; label: "胜" | "平" | "负"; db: string }[] = [
   { key: "h", label: "胜", db: "主胜" },
   { key: "d", label: "平", db: "平" },
   { key: "a", label: "负", db: "客胜" },
 ];
+
+const TTG_KEYS = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"];
+const TTG_LABELS = ["0球", "1球", "2球", "3球", "4球", "5球", "6球", "7+球"];
+
+function crsKeyToLabel(key: string): string {
+  const m = key.match(/^s(\d{2})s(\d{2})(f?)$/);
+  if (!m) return key;
+  const score = `${Number(m[1])}:${Number(m[2])}`;
+  return m[3] === "f" ? `${score}+` : score;
+}
+
+function crsSortKey(key: string): number {
+  const m = key.match(/^s(\d{2})s(\d{2})(f?)$/);
+  if (!m) return 9999;
+  return Number(m[1]) * 1000 + Number(m[2]) * 10 + (m[3] === "f" ? 1 : 0);
+}
 
 const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -96,7 +111,7 @@ export async function getOddsBoardFromDb(): Promise<SportteryOddsPayload> {
       .from("odds")
       .select("match_id, play_type, handicap, outcome, odd, captured_at")
       .order("captured_at", { ascending: false })
-      .limit(1000),
+      .limit(3000),
   ]);
 
   const oddsByMatch = new Map<number, DbOdds[]>();
@@ -131,17 +146,49 @@ export async function getOddsBoardFromDb(): Promise<SportteryOddsPayload> {
 
     const whl = latest("whl");
     const hhad = latest("handicap");
+    const ttgData = latest("totalgoals");
+    const crsData = latest("score");
     const builtRows: SportteryOddsRow[] = [];
+
     const whlRow = buildRow("HAD", "胜平负", "0", whl.updateAt, whl.map);
     if (whlRow) builtRows.push(whlRow);
-    const hhadRow = buildRow(
-      "HHAD",
-      "让球胜平负",
-      String(hhad.handicap ?? 0),
-      hhad.updateAt,
-      hhad.map,
-    );
+    const hhadRow = buildRow("HHAD", "让球胜平负", String(hhad.handicap ?? 0), hhad.updateAt, hhad.map);
     if (hhadRow) builtRows.push(hhadRow);
+
+    // 总进球（TTG）
+    if (ttgData.map.size > 0) {
+      const ttgOutcomes = TTG_LABELS
+        .map((label, i) => ({ key: TTG_KEYS[i], label, odd: ttgData.map.get(label) ?? null }))
+        .filter((o): o is { key: string; label: string; odd: number } => o.odd !== null);
+      if (ttgOutcomes.length >= 2) {
+        const implied = impliedProbabilities(ttgOutcomes.map((o) => o.odd));
+        builtRows.push({
+          poolCode: "TTG",
+          poolName: "总进球",
+          handicapLabel: "",
+          updateAt: ttgData.updateAt,
+          outcomes: ttgOutcomes.map((o, i) => ({ ...o, probability: implied?.probs[i] ?? null })),
+        });
+      }
+    }
+
+    // 比分（CRS）：key 格式 s01s00，label 由 key 推导
+    if (crsData.map.size > 0) {
+      const crsOutcomes = [...crsData.map.entries()]
+        .sort(([a], [b]) => crsSortKey(a) - crsSortKey(b))
+        .map(([key, odd]) => ({ key, label: crsKeyToLabel(key), odd, probability: null as number | null }));
+      if (crsOutcomes.length >= 2) {
+        const implied = impliedProbabilities(crsOutcomes.map((o) => o.odd));
+        builtRows.push({
+          poolCode: "CRS",
+          poolName: "比分",
+          handicapLabel: "",
+          updateAt: crsData.updateAt,
+          outcomes: crsOutcomes.map((o, i) => ({ ...o, probability: implied?.probs[i] ?? null })),
+        });
+      }
+    }
+
     if (builtRows.length === 0) continue;
 
     if (whl.updateAt && (!lastCaptured || whl.updateAt > lastCaptured)) {

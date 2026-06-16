@@ -12,6 +12,9 @@ import { supabaseAdmin } from "./supabase";
 export interface AccountView {
   id: string;
   nickname: string | null;
+  username: string | null;
+  email: string | null;
+  avatar_url: string | null;
   points: number;
   tier: SubTier;
   subType: string | null;
@@ -29,11 +32,10 @@ export interface AccountView {
 
 /** 读取账户全貌：资料 + 订阅 + 解锁/竞猜历史 */
 export async function getAccount(deviceId: string): Promise<AccountView> {
-  await registerOrGet(deviceId); // 确保已建档
   const db = supabaseAdmin();
   const { data: profile } = await db
     .from("profiles")
-    .select("id, nickname, points, sub_type, sub_expires")
+    .select("id, nickname, username, email, avatar_url, points, sub_type, sub_expires")
     .eq("id", deviceId)
     .single();
 
@@ -58,6 +60,9 @@ export async function getAccount(deviceId: string): Promise<AccountView> {
   return {
     id: deviceId,
     nickname: (profile?.nickname as string | null) ?? null,
+    username: (profile?.username as string | null) ?? null,
+    email: (profile?.email as string | null) ?? null,
+    avatar_url: (profile?.avatar_url as string | null) ?? null,
     points: (profile?.points as number) ?? 0,
     tier: activeTier(subType, subExpires),
     subType,
@@ -94,30 +99,44 @@ export async function grantSubscription(
   return { ok: true, subExpires: expires };
 }
 
-/**
- * 兑换开通码。码表来自环境变量 REDEEM_CODES，格式：
- *   "CODE1:pro:30,CODE2:max:60"（码:档位:天数，逗号分隔）
- */
+/** 生成随机激活码（大写字母+数字，12位） */
+export function generateCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 12 }, (_, i) =>
+    (i === 4 || i === 8 ? "-" : chars[Math.floor(Math.random() * chars.length)])
+  ).join("");
+}
+
+/** 兑换激活码（从 activation_codes 表查询） */
 export async function redeemCode(
   deviceId: string,
   code: string,
 ): Promise<{ ok: boolean; message: string; tier?: SubTier; subExpires?: string }> {
-  const raw = process.env.REDEEM_CODES ?? "";
-  const map = new Map<string, { tier: "pro" | "max"; days: number }>();
-  for (const part of raw.split(",")) {
-    const [c, tier, days] = part.split(":");
-    if (c && (tier === "pro" || tier === "max") && Number(days) > 0) {
-      map.set(c.trim().toUpperCase(), { tier, days: Number(days) });
-    }
-  }
-  const entry = map.get(code.trim().toUpperCase());
-  if (!entry) return { ok: false, message: "开通码无效或已停用" };
+  const db = supabaseAdmin();
+  const cleaned = code.trim().toUpperCase().replace(/\s/g, "");
 
-  const { subExpires } = await grantSubscription(deviceId, entry.tier, entry.days);
+  const { data: entry } = await db
+    .from("activation_codes")
+    .select("id, tier, days, is_active, used_at")
+    .eq("code", cleaned)
+    .maybeSingle();
+
+  if (!entry) return { ok: false, message: "激活码无效" };
+  if (!entry.is_active) return { ok: false, message: "激活码已作废" };
+  if (entry.used_at) return { ok: false, message: "激活码已被使用" };
+
+  const tier = entry.tier as "pro" | "max";
+  const { subExpires } = await grantSubscription(deviceId, tier, entry.days);
+
+  // 标记已使用
+  await db.from("activation_codes")
+    .update({ used_at: new Date().toISOString(), used_by: deviceId })
+    .eq("id", entry.id);
+
   return {
     ok: true,
-    message: `开通成功：${entry.tier.toUpperCase()} ${entry.days} 天`,
-    tier: entry.tier,
+    message: `开通成功：${tier.toUpperCase()} ${entry.days} 天`,
+    tier,
     subExpires,
   };
 }

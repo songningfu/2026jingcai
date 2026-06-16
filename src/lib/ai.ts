@@ -11,29 +11,36 @@ export async function chatJSONWith(opts: {
   maxTokens?: number;
   label?: string;
 }): Promise<string> {
-  const res = await fetch(`${opts.base.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: [
-        { role: "system", content: opts.system },
-        { role: "user", content: opts.user },
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: opts.maxTokens ?? 4000,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`${opts.label ?? opts.model} 请求失败: ${res.status} ${await res.text()}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 150_000);
+  try {
+    const res = await fetch(`${opts.base.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        Authorization: `Bearer ${opts.key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: [
+          { role: "system", content: opts.system },
+          { role: "user", content: opts.user },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: opts.maxTokens ?? 4000,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`${opts.label ?? opts.model} 请求失败: ${res.status} ${await res.text()}`);
+    }
+    const data = await res.json();
+    const content: string | undefined = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error(`${opts.label ?? opts.model} 返回为空`);
+    return content;
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await res.json();
-  const content: string | undefined = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error(`${opts.label ?? opts.model} 返回为空`);
-  return content;
 }
 
 /** 按注册表里的模型规格调用。当前统一走默认生成通道，展示名用于链路标识。 */

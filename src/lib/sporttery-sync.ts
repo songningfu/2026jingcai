@@ -5,11 +5,11 @@ import type { SportteryMatch, SportteryOddsPayload, SportteryOddsRow } from "./s
 import { supabaseAdmin } from "./supabase";
 
 const MAX_KICKOFF_DIFF_MS = 3 * 60 * 60 * 1000;
-const OUTCOME_LABELS = {
+const OUTCOME_LABELS: Record<string, string> = {
   h: "主胜",
   d: "平",
   a: "客胜",
-} as const;
+};
 
 interface DbTeam {
   id?: number;
@@ -26,7 +26,7 @@ interface DbMatch {
 
 interface OddsInsertRow {
   match_id: number;
-  play_type: "whl" | "handicap";
+  play_type: "whl" | "handicap" | "totalgoals" | "score";
   handicap: number | null;
   outcome: string;
   odd: number;
@@ -148,16 +148,53 @@ function toOddsRows(match: MatchedSportteryMatch, fallbackCapturedAt: string): O
 
   for (const oddsRow of match.sportteryMatch.rows) {
     const capturedAt = fallbackCapturedAt;
+
+    // 总进球数（TTG）：outcome 直接用档位标签（0球/1球/.../7+球），无让球线
+    if (oddsRow.poolCode === "TTG") {
+      for (const outcome of oddsRow.outcomes) {
+        if (outcome.odd === null || !outcome.label) continue;
+        rows.push({
+          match_id: match.dbMatch.id,
+          play_type: "totalgoals",
+          handicap: null,
+          outcome: outcome.label,
+          odd: outcome.odd,
+          captured_at: capturedAt,
+        });
+      }
+      continue;
+    }
+
+    // 比分（CRS）：outcome 存原始 key（s01s00 格式），fallback 可反推标签
+    if (oddsRow.poolCode === "CRS") {
+      for (const outcome of oddsRow.outcomes) {
+        if (outcome.odd === null || !outcome.key) continue;
+        rows.push({
+          match_id: match.dbMatch.id,
+          play_type: "score",
+          handicap: null,
+          outcome: outcome.key,
+          odd: outcome.odd,
+          captured_at: capturedAt,
+        });
+      }
+      continue;
+    }
+
+    // 胜平负（HAD→whl）/ 让球胜平负（HHAD→handicap）
+    if (oddsRow.poolCode !== "HAD" && oddsRow.poolCode !== "HHAD") continue;
     const playType = oddsRow.poolCode === "HAD" ? "whl" : "handicap";
     const handicap = parseHandicap(oddsRow);
 
     for (const outcome of oddsRow.outcomes) {
       if (outcome.odd === null) continue;
+      const label = OUTCOME_LABELS[outcome.key];
+      if (!label) continue;
       rows.push({
         match_id: match.dbMatch.id,
         play_type: playType,
         handicap,
-        outcome: OUTCOME_LABELS[outcome.key],
+        outcome: label,
         odd: outcome.odd,
         captured_at: capturedAt,
       });
@@ -218,7 +255,7 @@ export async function syncSportteryOdds(
       .from("odds")
       .delete()
       .in("match_id", matchedIds)
-      .in("play_type", ["whl", "handicap"]);
+      .in("play_type", ["whl", "handicap", "totalgoals", "score"]);
 
     if (deleteError) {
       throw new Error(`清理旧赔率失败: ${deleteError.message}`);

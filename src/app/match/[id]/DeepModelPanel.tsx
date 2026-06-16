@@ -46,7 +46,7 @@ export default function DeepModelPanel({ matchId }: { matchId: number }) {
 
   const STEP_LABELS = result
     ? result.steps.map((s) => s.label)
-    : ["赔率去水位", "双变量泊松拟合", "Dixon-Coles 修正", "比分矩阵展开", "多模型融合"];
+    : ["把水分榨掉", "算两队各自能进几球", "低比分场景单独校准", "列出所有比分，逐一算概率", "汇总结果，输出概率分布"];
 
   const start = async () => {
     setStep(0);

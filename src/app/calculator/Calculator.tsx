@@ -20,12 +20,43 @@ interface OutcomeRow {
   odd: string;
 }
 
+const PLAY_PRESETS: { name: string; rows: OutcomeRow[] }[] = [
+  {
+    name: "胜平负",
+    rows: [{ label: "主胜", odd: "" }, { label: "平局", odd: "" }, { label: "客胜", odd: "" }],
+  },
+  {
+    name: "总进球",
+    rows: [
+      { label: "0球", odd: "" }, { label: "1球", odd: "" }, { label: "2球", odd: "" },
+      { label: "3球", odd: "" }, { label: "4球", odd: "" }, { label: "5球", odd: "" },
+      { label: "6球", odd: "" }, { label: "7+球", odd: "" },
+    ],
+  },
+  {
+    name: "半全场",
+    rows: [
+      { label: "主/主", odd: "" }, { label: "主/平", odd: "" }, { label: "主/客", odd: "" },
+      { label: "平/主", odd: "" }, { label: "平/平", odd: "" }, { label: "平/客", odd: "" },
+      { label: "客/主", odd: "" }, { label: "客/平", odd: "" }, { label: "客/客", odd: "" },
+    ],
+  },
+  {
+    name: "比分",
+    rows: [
+      { label: "1-0", odd: "" }, { label: "2-0", odd: "" }, { label: "2-1", odd: "" },
+      { label: "3-0", odd: "" }, { label: "3-1", odd: "" }, { label: "3-2", odd: "" },
+      { label: "0-0", odd: "" }, { label: "1-1", odd: "" }, { label: "2-2", odd: "" },
+      { label: "0-1", odd: "" }, { label: "0-2", odd: "" }, { label: "1-2", odd: "" },
+      { label: "0-3", odd: "" }, { label: "1-3", odd: "" }, { label: "2-3", odd: "" },
+      { label: "其他", odd: "" },
+    ],
+  },
+];
+
 function SingleMatchTool() {
-  const [rows, setRows] = useState<OutcomeRow[]>([
-    { label: "主胜", odd: "" },
-    { label: "平局", odd: "" },
-    { label: "客胜", odd: "" },
-  ]);
+  const [preset, setPreset] = useState(0);
+  const [rows, setRows] = useState<OutcomeRow[]>(PLAY_PRESETS[0].rows);
 
   const odds = rows.map((r) => parseOdd(r.odd));
   const allValid = odds.every((o) => o !== null) && odds.length >= 2;
@@ -36,8 +67,22 @@ function SingleMatchTool() {
 
   return (
     <section className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-faint">玩法：</span>
+        {PLAY_PRESETS.map((p, i) => (
+          <button
+            key={p.name}
+            onClick={() => { setPreset(i); setRows(p.rows.map((r) => ({ ...r }))); }}
+            className={`rounded-full px-3 py-1 text-xs transition ${
+              preset === i ? "bg-neon/15 font-medium text-neon ring-1 ring-neon/30" : "bg-raised text-mut hover:text-ink"
+            }`}
+          >
+            {p.name}
+          </button>
+        ))}
+      </div>
       <p className="text-sm text-mut">
-        输入某一玩法下所有结果的十进制赔率（如胜平负三项），换算为隐含概率。
+        输入所选玩法所有结果的十进制赔率，换算为隐含概率。
         归一化概率已去除「水位」，由赔率反推、含市场情绪，
         <strong>非真实胜率</strong>。
       </p>

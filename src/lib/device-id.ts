@@ -34,3 +34,17 @@ export function getDeviceId(): string {
   }
   return id;
 }
+
+/** 登录成功后，把当前浏览器身份切换为账号统一 id（跨设备同步）。 */
+export function setDeviceId(id: string): void {
+  if (typeof window === "undefined") return;
+  if (/^[0-9a-f-]{36}$/i.test(id)) localStorage.setItem(KEY, id);
+}
+
+/** 登出后回到全新访客身份（账号积分已留在账号上，不带走）。 */
+export function resetDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  const id = createDeviceId();
+  localStorage.setItem(KEY, id);
+  return id;
+}

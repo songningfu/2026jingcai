@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/device-id";
+import LoginModal from "@/app/account/LoginModal";
 
 export interface GameMatch {
   id: number;
@@ -22,6 +23,8 @@ interface Profile {
   nickname: string | null;
   points: number;
   last_checkin: string | null;
+  invite_code: string | null;
+  invited_by: string | null;
 }
 interface PredictionView {
   id: number;
@@ -51,7 +54,7 @@ function todayCN() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
 }
 
-type Tab = "predict" | "perks" | "rank" | "mine";
+type Tab = "predict" | "rank";
 
 export default function GamesClient({ matches }: { matches: GameMatch[] }) {
   const [deviceId, setDeviceId] = useState("");
@@ -59,9 +62,14 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
   const [predictions, setPredictions] = useState<PredictionView[]>([]);
   const [unlocks, setUnlocks] = useState<UnlockView[]>([]);
   const [rank, setRank] = useState<number | null>(null);
+  const [inviteCount, setInviteCount] = useState(0);
   const [tab, setTab] = useState<Tab>("predict");
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
+  const [inviteInput, setInviteInput] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
 
   const predictedIds = useMemo(
     () => new Set(predictions.map((p) => p.match_id)),
@@ -85,13 +93,19 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
       setPredictions(data.predictions);
       setUnlocks(data.unlocks ?? []);
       setRank(data.rank);
+      setInviteCount(data.inviteCount ?? 0);
     }
   }, []);
 
   useEffect(() => {
     const id = getDeviceId();
     setDeviceId(id);
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) setInviteInput(ref.toUpperCase().slice(0, 6));
     refresh(id).finally(() => setLoading(false));
+    import("@/lib/account-status").then(({ fetchLoginState }) => {
+      fetchLoginState().then(setIsLoggedIn);
+    });
   }, [refresh]);
 
   const doCheckin = async () => {
@@ -115,6 +129,32 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
 
   const checkedInToday = profile?.last_checkin === todayCN();
 
+  const doRedeemInvite = async () => {
+    if (!inviteInput.trim() || inviteLoading) return;
+    setInviteLoading(true);
+    const res = await fetch("/api/games/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId, code: inviteInput.trim() }),
+    });
+    const data = await res.json();
+    flash(data.message || data.error || "操作失败");
+    if (data.ok) {
+      setInviteInput("");
+      refresh(deviceId);
+    }
+    setInviteLoading(false);
+  };
+
+  const copyInviteCode = () => {
+    const code = profile?.invite_code;
+    if (!code) return;
+    const url = `${window.location.origin}/games?ref=${code}`;
+    navigator.clipboard.writeText(url).then(() => flash("邀请链接已复制！")).catch(() => {
+      navigator.clipboard.writeText(code).then(() => flash(`邀请码 ${code} 已复制`));
+    });
+  };
+
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-20 text-center text-mut">载入中…</div>
@@ -123,46 +163,12 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      {/* 资料头 */}
-      <div className="card relative overflow-hidden p-5">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon/50 to-transparent" />
-        <div className="flex items-center justify-between">
-          <div>
-            <button onClick={editNickname} className="text-lg font-bold text-ink hover:text-neon">
-              {profile?.nickname ?? "球迷"} <span className="text-xs text-faint">✎</span>
-            </button>
-            <p className="mt-0.5 text-xs text-faint">
-              排名 {rank ? `第 ${rank} 名` : "—"} · 设备访客身份
-            </p>
-          </div>
-          <div className="text-right">
-            <div className="font-num text-3xl font-bold tabular-nums text-neon">
-              {profile?.points ?? 0}
-            </div>
-            <div className="text-xs text-faint">积分</div>
-          </div>
-        </div>
-        <button
-          onClick={doCheckin}
-          disabled={checkedInToday}
-          className={`mt-4 w-full rounded-lg py-2.5 text-sm font-semibold transition ${
-            checkedInToday
-              ? "bg-raised text-faint"
-              : "bg-neon text-white hover:brightness-110"
-          }`}
-        >
-          {checkedInToday ? "今日已签到 ✓" : "每日签到 +100"}
-        </button>
-      </div>
-
       {/* tabs */}
-      <div className="mt-6 flex gap-2">
+      <div className="flex gap-2">
         {(
           [
             { k: "predict", label: "竞猜" },
-            { k: "perks", label: "权益" },
             { k: "rank", label: "排行榜" },
-            { k: "mine", label: "我的" },
           ] as const
         ).map((t) => (
           <button
@@ -179,6 +185,16 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
         ))}
       </div>
 
+      {/* 未登录提示条 */}
+      {!isLoggedIn && (
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-amber/30 bg-amber/5 px-4 py-3">
+          <p className="text-sm text-amber/90">登录账号后参与竞猜、签到和积分系统</p>
+          <button onClick={() => setShowLogin(true)} className="ml-3 shrink-0 rounded-lg bg-amber/10 px-3 py-1.5 text-xs font-semibold text-amber transition hover:bg-amber/20">
+            去登录
+          </button>
+        </div>
+      )}
+
       <div className="mt-5">
         {tab === "predict" && (
           <PredictTab
@@ -186,15 +202,15 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
             predictedIds={predictedIds}
             points={profile?.points ?? 0}
             deviceId={deviceId}
+            isLoggedIn={isLoggedIn}
             onDone={(msg) => {
               flash(msg);
               refresh(deviceId);
             }}
+            onLoginRequest={() => setShowLogin(true)}
           />
         )}
         {tab === "rank" && <RankTab myNickname={profile?.nickname ?? null} />}
-        {tab === "perks" && <PerksTab points={profile?.points ?? 0} />}
-        {tab === "mine" && <MineTab predictions={predictions} unlocks={unlocks} matches={matches} />}
       </div>
 
       <p className="mt-8 rounded-lg border border-amber/20 bg-amber/5 px-4 py-3 text-xs leading-relaxed text-amber/80">
@@ -207,6 +223,18 @@ export default function GamesClient({ matches }: { matches: GameMatch[] }) {
           <div className="rounded-full bg-ink px-5 py-2.5 text-sm text-white shadow-lg">{toast}</div>
         </div>
       )}
+
+      {showLogin && (
+        <LoginModal
+          onClose={() => setShowLogin(false)}
+          onAuthChange={() => {
+            setShowLogin(false);
+            import("@/lib/account-status").then(({ fetchLoginState }) => {
+              fetchLoginState().then(setIsLoggedIn);
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -218,13 +246,17 @@ function PredictTab({
   predictedIds,
   points,
   deviceId,
+  isLoggedIn,
   onDone,
+  onLoginRequest,
 }: {
   matches: GameMatch[];
   predictedIds: Set<number>;
   points: number;
   deviceId: string;
+  isLoggedIn: boolean;
   onDone: (msg: string) => void;
+  onLoginRequest: () => void;
 }) {
   if (matches.length === 0) {
     return (
@@ -242,7 +274,9 @@ function PredictTab({
           already={predictedIds.has(m.id)}
           points={points}
           deviceId={deviceId}
+          isLoggedIn={isLoggedIn}
           onDone={onDone}
+          onLoginRequest={onLoginRequest}
         />
       ))}
     </div>
@@ -254,13 +288,17 @@ function MatchCard({
   already,
   points,
   deviceId,
+  isLoggedIn,
   onDone,
+  onLoginRequest,
 }: {
   match: GameMatch;
   already: boolean;
   points: number;
   deviceId: string;
+  isLoggedIn: boolean;
   onDone: (msg: string) => void;
+  onLoginRequest: () => void;
 }) {
   const [pick, setPick] = useState<Pick | null>(null);
   const [stake, setStake] = useState(100);
@@ -352,13 +390,22 @@ function MatchCard({
             </div>
           )}
 
-          <button
-            onClick={submit}
-            disabled={!pick || busy || stake > points}
-            className="mt-3 w-full rounded-lg bg-neon py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
-          >
-            {stake > points ? "积分不足" : busy ? "提交中…" : "确认竞猜"}
-          </button>
+          {!isLoggedIn ? (
+            <button
+              onClick={onLoginRequest}
+              className="mt-3 block w-full rounded-lg border border-amber/40 bg-amber/5 py-2.5 text-center text-sm font-semibold text-amber transition hover:bg-amber/10"
+            >
+              登录后参与竞猜
+            </button>
+          ) : (
+            <button
+              onClick={submit}
+              disabled={!pick || busy || stake > points}
+              className="mt-3 w-full rounded-lg bg-neon py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
+            >
+              {stake > points ? "积分不足" : busy ? "提交中…" : "确认竞猜"}
+            </button>
+          )}
         </>
       )}
     </div>
@@ -473,14 +520,60 @@ function RankTab({ myNickname }: { myNickname: string | null }) {
 
 /* ---------- 我的 tab ---------- */
 
+function InviteCard({
+  inviteCount,
+  inviteCode,
+  onCopy,
+}: {
+  inviteCount: number;
+  inviteCode: string | null;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="card overflow-hidden">
+      <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">邀请好友</div>
+      <div className="px-4 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-faint">我的邀请码</div>
+            <div className="font-num mt-1 text-2xl font-bold tracking-[0.25em] text-ink">
+              {inviteCode ?? "——"}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-faint">已成功邀请</div>
+            <div className="font-num mt-1 text-2xl font-bold tabular-nums text-neon">{inviteCount}</div>
+            <div className="text-xs text-faint">人</div>
+          </div>
+        </div>
+        <button
+          onClick={onCopy}
+          className="mt-3 w-full rounded-lg bg-neon/10 py-2.5 text-sm font-semibold text-neon transition hover:bg-neon/20"
+        >
+          复制邀请链接
+        </button>
+        <p className="mt-2 text-center text-xs text-faint">
+          好友用你的邀请码注册 → 好友 +300 积分，你 +200 积分
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function MineTab({
   predictions,
   unlocks,
   matches,
+  inviteCount,
+  inviteCode,
+  onCopy,
 }: {
   predictions: PredictionView[];
   unlocks: UnlockView[];
   matches: GameMatch[];
+  inviteCount: number;
+  inviteCode: string | null;
+  onCopy: () => void;
 }) {
   const nameOf = (id: number) => {
     const m = matches.find((x) => x.id === id);
@@ -489,13 +582,17 @@ function MineTab({
 
   if (predictions.length === 0 && unlocks.length === 0)
     return (
-      <div className="card border-dashed px-4 py-12 text-center text-sm text-mut">
-        还没有竞猜或权益记录，去「竞猜」选一场，或到比赛详情页解锁深度预测。
+      <div className="space-y-3">
+        <InviteCard inviteCount={inviteCount} inviteCode={inviteCode} onCopy={onCopy} />
+        <div className="card border-dashed px-4 py-12 text-center text-sm text-mut">
+          还没有竞猜或权益记录，去「竞猜」选一场，或到比赛详情页解锁深度预测。
+        </div>
       </div>
     );
 
   return (
     <div className="space-y-3">
+      <InviteCard inviteCount={inviteCount} inviteCode={inviteCode} onCopy={onCopy} />
       {unlocks.length > 0 && (
         <div className="card overflow-hidden">
           <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">

@@ -1,15 +1,13 @@
-export type SportteryOutcomeKey = "h" | "d" | "a";
-
 export interface SportteryOutcome {
-  key: SportteryOutcomeKey;
-  label: "胜" | "平" | "负";
+  key: string;
+  label: string;
   odd: number | null;
   probability: number | null;
 }
 
 export interface SportteryOddsRow {
-  poolCode: "HAD" | "HHAD";
-  poolName: "胜平负" | "让球胜平负";
+  poolCode: string;
+  poolName: string;
   handicapLabel: string;
   updateAt: string | null;
   outcomes: SportteryOutcome[];
@@ -28,6 +26,8 @@ export interface SportteryMatch {
   away: string;
   status: string;
   rows: SportteryOddsRow[];
+  homeScore?: number | null;
+  awayScore?: number | null;
 }
 
 export interface SportteryMatchDay {

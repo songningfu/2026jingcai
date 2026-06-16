@@ -12,7 +12,6 @@ export const metadata: Metadata = {
 export const revalidate = 60;
 
 export default async function CalculatorPage() {
-  // 官方接口拒绝境外 IP（Vercel 机房），失败时降级读本站采集缓存（Supabase odds 表）
   let payload = await getSportteryFootballOdds().catch((error) =>
     emptySportteryPayload(error instanceof Error ? error.message : String(error)),
   );

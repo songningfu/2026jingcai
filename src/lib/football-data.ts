@@ -117,3 +117,44 @@ export function groupLabel(group: string | null): string | null {
   if (!group) return null;
   return group.replace("GROUP_", "") + "组";
 }
+
+/** 某支队最近 N 场已完赛比赛（跨所有赛事），缓存 1 小时 */
+export async function getTeamRecentMatches(fdTeamId: number, limit = 5): Promise<FdMatch[]> {
+  try {
+    const data = await fdFetch<{ matches: FdMatch[] }>(
+      `/teams/${fdTeamId}/matches?status=FINISHED&limit=${limit}`,
+      3600,
+    );
+    return (data.matches ?? []).slice(-limit);
+  } catch {
+    return [];
+  }
+}
+
+/** 两队历史交锋（H2H），缓存 1 小时 */
+export async function getH2H(fdMatchId: number): Promise<{
+  homeTeam: FdTeam;
+  awayTeam: FdTeam;
+  aggregates: { numberOfMatches: number; homeTeam: { wins: number; draws: number; losses: number } };
+  matches: FdMatch[];
+} | null> {
+  try {
+    const data = await fdFetch<{
+      head2head: {
+        numberOfMatches: number;
+        homeTeam: { wins: number; draws: number; losses: number };
+      };
+      matches: FdMatch[];
+      homeTeam: FdTeam;
+      awayTeam: FdTeam;
+    }>(`/matches/${fdMatchId}/head2head?limit=10`, 3600);
+    return {
+      homeTeam: data.homeTeam,
+      awayTeam: data.awayTeam,
+      aggregates: { numberOfMatches: data.head2head.numberOfMatches, homeTeam: data.head2head.homeTeam },
+      matches: (data.matches ?? []).filter((m) => m.status === "FINISHED").slice(0, 5),
+    };
+  } catch {
+    return null;
+  }
+}

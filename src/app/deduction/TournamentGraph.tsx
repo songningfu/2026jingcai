@@ -1,14 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-
-/**
- * 世界杯关系图谱（MiroFish 风格）：
- * 节点 = 12 小组 + 48 球队 + 已确定对阵的比赛；边 = 隶属 / 主 / 客。
- * 自实现力导向布局（斥力 + 弹簧 + 锚点），SVG 渲染，支持拖拽、悬停高亮、
- * 小组聚焦、边标签开关；点球队看球队信息，点比赛直达详情/推演。
- */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface GTeam {
   id: number;
@@ -45,7 +38,7 @@ interface SimNode {
   vx: number;
   vy: number;
   r: number;
-  ax?: number; // 锚点（小组用）
+  ax?: number;
   ay?: number;
   team?: GTeam;
   match?: GMatch;
@@ -58,9 +51,8 @@ interface SimEdge {
   rest: number;
 }
 
-const W = 960;
-const H = 620;
-const EDGE_LABEL: Record<SimEdge["kind"], string> = { belong: "隶属", home: "主", away: "客" };
+const DEFAULT_W = 960;
+const DEFAULT_H = 600;
 
 const timeFmt = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai",
@@ -81,22 +73,59 @@ const STAGE_ZH: Record<string, string> = {
   final: "决赛",
 };
 
-export default function TournamentGraph() {
+interface TournamentGraphProps {
+  onMatchSelect?: (matchId: number) => void;
+  highlightMatchId?: number | null;
+  highlightTeamIds?: number[];
+  autoFocusGroup?: string | null;
+  isAnalyzing?: boolean;
+}
+
+export default function TournamentGraph({ onMatchSelect, highlightMatchId, highlightTeamIds, autoFocusGroup, isAnalyzing = false }: TournamentGraphProps = {}) {
   const [data, setData] = useState<GraphData | null>(null);
   const [error, setError] = useState("");
   const [focusGroup, setFocusGroup] = useState<string>("");
-  const [edgeLabels, setEdgeLabels] = useState(false);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [, setFrame] = useState(0);
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const nodesRef = useRef<SimNode[]>([]);
   const edgesRef = useRef<SimEdge[]>([]);
   const alphaRef = useRef(1);
   const rafRef = useRef(0);
   const dragRef = useRef<SimNode | null>(null);
   const posCache = useRef(new Map<string, { x: number; y: number }>());
+  const panRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const panOffsetRef = useRef({ x: 0, y: 0 });
+  const dimRef = useRef({ w: DEFAULT_W, h: DEFAULT_H });
+  const [svgDim, setSvgDim] = useState({ w: DEFAULT_W, h: DEFAULT_H });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 10 && height > 10) {
+        dimRef.current = { w: Math.round(width), h: Math.round(height) };
+        setSvgDim({ w: Math.round(width), h: Math.round(height) });
+      }
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+    // re-run once data has loaded so containerRef is actually mounted
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!data]);
+
+  // 分析中：每隔 1.8s 重新激活力模拟，让节点持续涌动
+  useEffect(() => {
+    if (!isAnalyzing) return;
+    const id = setInterval(() => {
+      alphaRef.current = Math.max(alphaRef.current, 0.55);
+    }, 1800);
+    return () => clearInterval(id);
+  }, [isAnalyzing]);
 
   useEffect(() => {
     fetch("/api/deduction/graph")
@@ -105,9 +134,18 @@ export default function TournamentGraph() {
       .catch(() => setError("图谱数据加载失败"));
   }, []);
 
-  /* ---------- 构建节点与边（随筛选重建） ---------- */
+  // 外部传入 autoFocusGroup 时同步内部状态
+  useEffect(() => {
+    if (autoFocusGroup !== undefined) {
+      setFocusGroup(autoFocusGroup ?? "");
+      setSelectedKey(null);
+    }
+  }, [autoFocusGroup]);
+
   useEffect(() => {
     if (!data) return;
+    const CW = dimRef.current.w;
+    const CH = dimRef.current.h;
     const groups = focusGroup ? [focusGroup] : data.groups;
     const teams = data.teams.filter((t) => !focusGroup || t.group === focusGroup);
     const teamIds = new Set(teams.map((t) => t.id));
@@ -117,38 +155,37 @@ export default function TournamentGraph() {
     const index = new Map<string, number>();
     const push = (n: SimNode) => {
       const cached = posCache.current.get(n.key);
-      if (cached) {
-        n.x = cached.x;
-        n.y = cached.y;
-      }
+      if (cached) { n.x = cached.x; n.y = cached.y; }
       index.set(n.key, nodes.length);
       nodes.push(n);
     };
 
-    // 小组：锚定在椭圆环上，撑起整体结构
     groups.forEach((g, i) => {
       const angle = (i / groups.length) * Math.PI * 2 - Math.PI / 2;
-      const ax = W / 2 + Math.cos(angle) * (focusGroup ? 0 : W * 0.34);
-      const ay = H / 2 + Math.sin(angle) * (focusGroup ? 0 : H * 0.33);
+      const ax = CW / 2 + Math.cos(angle) * (focusGroup ? 0 : CW * 0.33);
+      const ay = CH / 2 + Math.sin(angle) * (focusGroup ? 0 : CH * 0.32);
       push({
         key: `g:${g}`, kind: "group", label: `${g}组`,
         x: ax + (Math.random() - 0.5) * 10, y: ay + (Math.random() - 0.5) * 10,
         vx: 0, vy: 0, r: focusGroup ? 18 : 13, ax, ay, group: g,
       });
     });
+
     teams.forEach((t) => {
       const gi = t.group ? index.get(`g:${t.group}`) : undefined;
-      const gx = gi !== undefined ? nodes[gi].x : W / 2;
-      const gy = gi !== undefined ? nodes[gi].y : H / 2;
+      const gx = gi !== undefined ? nodes[gi].x : CW / 2;
+      const gy = gi !== undefined ? nodes[gi].y : CH / 2;
       push({
         key: `t:${t.id}`, kind: "team", label: t.name,
         x: gx + (Math.random() - 0.5) * 90, y: gy + (Math.random() - 0.5) * 90,
         vx: 0, vy: 0, r: focusGroup ? 11 : 8, team: t, group: t.group ?? undefined,
       });
     });
+
     matches.forEach((m) => {
-      const hi = index.get(`t:${m.homeId}`)!;
-      const ai = index.get(`t:${m.awayId}`)!;
+      const hi = index.get(`t:${m.homeId}`);
+      const ai = index.get(`t:${m.awayId}`);
+      if (hi === undefined || ai === undefined) return;
       push({
         key: `m:${m.id}`, kind: "match",
         label: m.status === "finished" ? `${m.homeScore}-${m.awayScore}` : timeFmt.format(new Date(m.kickoff)),
@@ -160,14 +197,17 @@ export default function TournamentGraph() {
 
     const edges: SimEdge[] = [];
     teams.forEach((t) => {
-      if (t.group && index.has(`g:${t.group}`)) {
+      if (t.group && index.has(`g:${t.group}`) && index.has(`t:${t.id}`)) {
         edges.push({ s: index.get(`t:${t.id}`)!, t: index.get(`g:${t.group}`)!, kind: "belong", rest: focusGroup ? 130 : 62 });
       }
     });
     matches.forEach((m) => {
-      const mi = index.get(`m:${m.id}`)!;
-      edges.push({ s: mi, t: index.get(`t:${m.homeId}`)!, kind: "home", rest: focusGroup ? 80 : 46 });
-      edges.push({ s: mi, t: index.get(`t:${m.awayId}`)!, kind: "away", rest: focusGroup ? 80 : 46 });
+      const mi = index.get(`m:${m.id}`);
+      const hi = index.get(`t:${m.homeId}`);
+      const ai = index.get(`t:${m.awayId}`);
+      if (mi === undefined || hi === undefined || ai === undefined) return;
+      edges.push({ s: mi, t: hi, kind: "home", rest: focusGroup ? 80 : 46 });
+      edges.push({ s: mi, t: ai, kind: "away", rest: focusGroup ? 80 : 46 });
     });
 
     nodesRef.current = nodes;
@@ -175,7 +215,6 @@ export default function TournamentGraph() {
     alphaRef.current = 1;
   }, [data, focusGroup]);
 
-  /* ---------- 力导向模拟 ---------- */
   useEffect(() => {
     const step = () => {
       const nodes = nodesRef.current;
@@ -183,7 +222,6 @@ export default function TournamentGraph() {
       const alpha = alphaRef.current;
       if (nodes.length && alpha > 0.012) {
         for (let iter = 0; iter < 2; iter++) {
-          // 斥力
           for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
               const a = nodes[i], b = nodes[j];
@@ -196,29 +234,32 @@ export default function TournamentGraph() {
               a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
             }
           }
-          // 弹簧
           for (const e of edges) {
             const a = nodes[e.s], b = nodes[e.t];
+            if (!a || !b) continue;
             const dx = b.x - a.x, dy = b.y - a.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
             const f = ((d - e.rest) / d) * 0.055;
             a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
           }
-          // 锚点 + 弱中心引力 + 积分
+          const CW = dimRef.current.w;
+          const CH = dimRef.current.h;
           for (const n of nodes) {
             if (n.ax !== undefined && n.ay !== undefined) {
               n.vx += (n.ax - n.x) * 0.05;
               n.vy += (n.ay - n.y) * 0.05;
             } else {
-              n.vx += (W / 2 - n.x) * 0.0035;
-              n.vy += (H / 2 - n.y) * 0.0035;
+              n.vx += (CW / 2 - n.x) * 0.0035;
+              n.vy += (CH / 2 - n.y) * 0.0035;
             }
             if (dragRef.current === n) { n.vx = 0; n.vy = 0; continue; }
             n.vx *= 0.82; n.vy *= 0.82;
             const sp = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
             if (sp > 14) { n.vx = (n.vx / sp) * 14; n.vy = (n.vy / sp) * 14; }
-            n.x = Math.max(34, Math.min(W - 34, n.x + n.vx * alpha));
-            n.y = Math.max(30, Math.min(H - 30, n.y + n.vy * alpha));
+            // 虚拟画布是可视区域的 3 倍，节点可自由分布，用户通过 pan 浏览
+            const VW = CW * 1.5, VH = CH * 1.5;
+            n.x = Math.max(-VW, Math.min(CW + VW, n.x + n.vx * alpha));
+            n.y = Math.max(-VH, Math.min(CH + VH, n.y + n.vy * alpha));
           }
         }
         alphaRef.current *= 0.985;
@@ -231,26 +272,38 @@ export default function TournamentGraph() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  /* ---------- 交互 ---------- */
   const toSvgXY = useCallback((clientX: number, clientY: number) => {
     const rect = svgRef.current!.getBoundingClientRect();
-    return { x: ((clientX - rect.left) / rect.width) * W, y: ((clientY - rect.top) / rect.height) * H };
+    const { w, h } = dimRef.current;
+    return {
+      x: ((clientX - rect.left) / rect.width) * w - panOffsetRef.current.x,
+      y: ((clientY - rect.top) / rect.height) * h - panOffsetRef.current.y,
+    };
   }, []);
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragRef.current) return;
-      const { x, y } = toSvgXY(e.clientX, e.clientY);
-      dragRef.current.x = Math.max(34, Math.min(W - 34, x));
-      dragRef.current.y = Math.max(30, Math.min(H - 30, y));
-      alphaRef.current = Math.max(alphaRef.current, 0.25);
-      setFrame((f) => f + 1);
-    },
-    [toSvgXY],
-  );
-  const endDrag = useCallback(() => { dragRef.current = null; }, []);
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (panRef.current && !dragRef.current) {
+      const rect = svgRef.current!.getBoundingClientRect();
+      const { w, h } = dimRef.current;
+      const dx = ((e.clientX - panRef.current.startX) / rect.width) * w;
+      const dy = ((e.clientY - panRef.current.startY) / rect.height) * h;
+      const nx = panRef.current.ox + dx;
+      const ny = panRef.current.oy + dy;
+      panOffsetRef.current = { x: nx, y: ny };
+      setPanOffset({ x: nx, y: ny });
+      return;
+    }
+    if (!dragRef.current) return;
+    const { x, y } = toSvgXY(e.clientX, e.clientY);
+    const { w, h } = dimRef.current;
+    dragRef.current.x = Math.max(34, Math.min(w - 34, x));
+    dragRef.current.y = Math.max(30, Math.min(h - 30, y));
+    alphaRef.current = Math.max(alphaRef.current, 0.25);
+    setFrame((f) => f + 1);
+  }, [toSvgXY]);
 
-  // 邻接（高亮用）
+  const endDrag = useCallback(() => { dragRef.current = null; panRef.current = null; }, []);
+
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const nodes = nodesRef.current;
@@ -267,32 +320,29 @@ export default function TournamentGraph() {
   }, [data, focusGroup, nodesRef.current.length]);
 
   const activeKey = hoverKey ?? selectedKey;
-  const isDim = (key: string) =>
-    !!activeKey && key !== activeKey && !neighbors.get(activeKey)?.has(key);
+  const isDim = (key: string) => !!activeKey && key !== activeKey && !neighbors.get(activeKey)?.has(key);
 
   const selected = nodesRef.current.find((n) => n.key === selectedKey) ?? null;
   const teamMatches = useMemo(() => {
     if (!selected?.team || !data) return [];
-    return data.matches
-      .filter((m) => m.homeId === selected.team!.id || m.awayId === selected.team!.id)
-      .slice(0, 6);
+    return data.matches.filter((m) => m.homeId === selected.team!.id || m.awayId === selected.team!.id).slice(0, 6);
   }, [selected, data]);
-  const teamName = useCallback(
-    (id: number) => data?.teams.find((t) => t.id === id)?.name ?? "待定",
-    [data],
-  );
+  const teamName = useCallback((id: number) => data?.teams.find((t) => t.id === id)?.name ?? "待定", [data]);
 
-  if (error) {
-    return <div className="card px-6 py-10 text-center text-sm text-faint">{error}</div>;
-  }
+  if (error) return <div className="card h-full px-6 py-10 text-center text-sm text-faint">{error}</div>;
+  if (!data) return (
+    <div className="card flex h-full items-center justify-center gap-2 text-sm text-faint">
+      <span className="anim-pulse-dot h-1.5 w-1.5 rounded-full bg-neon" />
+      加载图谱中…
+    </div>
+  );
 
   const nodes = nodesRef.current;
   const edges = edgesRef.current;
 
   return (
-    <div className="card relative overflow-hidden">
-      {/* 顶部控制条 */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
+    <div className="card relative flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
         <span className="flex items-center gap-1.5 text-xs text-mut">
           <span className="anim-pulse-dot h-1.5 w-1.5 rounded-full bg-neon" />
           赛事关系图谱
@@ -301,21 +351,6 @@ export default function TournamentGraph() {
           </span>
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => setEdgeLabels((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition ${
-              edgeLabels ? "bg-neon/10 text-neon" : "bg-raised text-mut"
-            }`}
-          >
-            <span
-              className={`block h-3.5 w-6 rounded-full p-0.5 transition ${edgeLabels ? "bg-neon" : "bg-line-strong"}`}
-            >
-              <span
-                className={`block h-2.5 w-2.5 rounded-full bg-white transition ${edgeLabels ? "translate-x-2.5" : ""}`}
-              />
-            </span>
-            边标签
-          </button>
           <select
             value={focusGroup}
             onChange={(e) => { setFocusGroup(e.target.value); setSelectedKey(null); }}
@@ -323,31 +358,29 @@ export default function TournamentGraph() {
             aria-label="小组聚焦"
           >
             <option value="">全部小组</option>
-            {(data?.groups ?? []).map((g) => (
-              <option key={g} value={g}>{g}组</option>
-            ))}
+            {data.groups.map((g) => <option key={g} value={g}>{g}组</option>)}
           </select>
           {(focusGroup || selectedKey) && (
-            <button
-              onClick={() => { setFocusGroup(""); setSelectedKey(null); }}
-              className="rounded-full bg-raised px-2.5 py-1 text-xs text-mut hover:text-ink"
-            >
+            <button onClick={() => { setFocusGroup(""); setSelectedKey(null); }} className="rounded-full bg-raised px-2.5 py-1 text-xs text-mut hover:text-ink">
               重置
             </button>
           )}
         </div>
       </div>
 
-      {/* 图谱画布 */}
-      <div className="relative">
+      <div ref={containerRef} className="relative flex-1 overflow-hidden min-h-0">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${W} ${H}`}
-          className="block w-full select-none"
-          style={{ aspectRatio: `${W}/${H}`, touchAction: "none" }}
+          viewBox={`0 0 ${svgDim.w} ${svgDim.h}`}
+          className="block h-full w-full select-none"
+          style={{ touchAction: "none", cursor: panRef.current ? "grabbing" : "grab" }}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerLeave={endDrag}
+          onPointerDown={(e) => {
+            if (dragRef.current) return;
+            panRef.current = { startX: e.clientX, startY: e.clientY, ox: panOffsetRef.current.x, oy: panOffsetRef.current.y };
+          }}
           onClick={() => setSelectedKey(null)}
         >
           <defs>
@@ -355,26 +388,22 @@ export default function TournamentGraph() {
               <circle cx="1.2" cy="1.2" r="1.2" fill="var(--color-line)" />
             </pattern>
           </defs>
-          <rect width={W} height={H} fill="url(#dotgrid)" />
+          <rect width={svgDim.w} height={svgDim.h} fill="url(#dotgrid)" />
+          <g transform={`translate(${panOffset.x},${panOffset.y})`}>
 
-          {/* 边 */}
           {edges.map((e, i) => {
             const a = nodes[e.s], b = nodes[e.t];
             if (!a || !b) return null;
             const dim = isDim(a.key) || isDim(b.key);
             return (
-              <g key={i} opacity={dim ? 0.12 : 0.55}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--color-line-strong)" strokeWidth={e.kind === "belong" ? 1.1 : 0.8} />
-                {edgeLabels && !dim && (
-                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 2} fontSize={6.5} fill="var(--color-faint)" textAnchor="middle">
-                    {EDGE_LABEL[e.kind]}
-                  </text>
-                )}
-              </g>
+              <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke="var(--color-line-strong)"
+                strokeWidth={e.kind === "belong" ? 1.1 : 0.8}
+                opacity={dim ? 0.1 : 0.5}
+              />
             );
           })}
 
-          {/* 节点 */}
           {nodes.map((n) => {
             const dim = isDim(n.key);
             const sel = n.key === selectedKey;
@@ -384,7 +413,7 @@ export default function TournamentGraph() {
               <g
                 key={n.key}
                 transform={`translate(${n.x},${n.y})`}
-                opacity={dim ? 0.18 : 1}
+                opacity={dim ? 0.15 : 1}
                 className="cursor-pointer"
                 onPointerDown={(e) => { e.stopPropagation(); dragRef.current = n; }}
                 onPointerEnter={() => setHoverKey(n.key)}
@@ -394,6 +423,8 @@ export default function TournamentGraph() {
                   if (n.kind === "group") {
                     setFocusGroup(focusGroup === n.group ? "" : (n.group ?? ""));
                     setSelectedKey(null);
+                  } else if (n.kind === "match" && onMatchSelect) {
+                    onMatchSelect(n.match!.id);
                   } else {
                     setSelectedKey(sel ? null : n.key);
                   }
@@ -403,26 +434,32 @@ export default function TournamentGraph() {
                 {n.kind === "group" && (
                   <>
                     <circle r={n.r} fill="var(--color-amber)" opacity={0.14} stroke="var(--color-amber)" strokeWidth={1.4} />
-                    <text fontSize={n.r * 0.78} fill="var(--color-amber)" fontWeight={700} textAnchor="middle" dy={n.r * 0.28}>
-                      {n.group}
-                    </text>
+                    <text fontSize={n.r * 0.78} fill="var(--color-amber)" fontWeight={700} textAnchor="middle" dy={n.r * 0.28}>{n.group}</text>
                   </>
                 )}
                 {n.kind === "team" && (
                   <>
-                    <circle r={n.r} fill="var(--color-neon)" opacity={0.92} />
-                    <text fontSize={9} fill="var(--color-ink)" textAnchor="middle" dy={n.r + 10}>
-                      {n.label}
-                    </text>
+                    {highlightTeamIds?.includes(n.team?.id ?? -1) && (
+                      <circle r={n.r + 5} fill="none" stroke="var(--color-amber)" strokeWidth={1.8} strokeDasharray="3 2" opacity={0.9} />
+                    )}
+                    <circle r={n.r}
+                      fill={highlightTeamIds?.includes(n.team?.id ?? -1) ? "var(--color-amber)" : "var(--color-neon)"}
+                      opacity={0.9}
+                    />
+                    <text fontSize={9} fill="var(--color-ink)" textAnchor="middle" dy={n.r + 10}>{n.label}</text>
                   </>
                 )}
                 {n.kind === "match" && (
                   <>
-                    <circle
-                      r={n.r}
-                      fill={live ? "var(--color-live)" : finished ? "var(--color-faint)" : "var(--color-surface)"}
-                      stroke={live ? "var(--color-live)" : "var(--color-mut)"}
-                      strokeWidth={1}
+                    {highlightMatchId === n.match?.id && (
+                      <circle r={n.r + 6} fill="none" stroke="var(--color-neon)" strokeWidth={1.5} strokeDasharray="3 2" opacity={0.8}>
+                        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="4s" repeatCount="indefinite" />
+                      </circle>
+                    )}
+                    <circle r={n.r}
+                      fill={live ? "var(--color-live)" : finished ? "var(--color-faint)" : highlightMatchId === n.match?.id ? "var(--color-neon)" : "var(--color-surface)"}
+                      stroke={highlightMatchId === n.match?.id ? "var(--color-neon)" : live ? "var(--color-live)" : "var(--color-mut)"}
+                      strokeWidth={highlightMatchId === n.match?.id ? 2 : 1}
                     >
                       {live && <animate attributeName="r" values={`${n.r};${n.r + 2};${n.r}`} dur="1.4s" repeatCount="indefinite" />}
                     </circle>
@@ -436,45 +473,45 @@ export default function TournamentGraph() {
               </g>
             );
           })}
+          </g>
         </svg>
 
-        {/* 图例（左下） */}
+        {/* AI 分析中扫描线效果 */}
+        {isAnalyzing && (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div
+              className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-neon to-transparent opacity-70"
+              style={{ top: 0, animation: "scanline 2.2s linear infinite" }}
+            />
+            <div className="absolute inset-0 rounded-none bg-neon/[0.03]" />
+          </div>
+        )}
+
         <div className="absolute bottom-3 left-3 rounded-xl border border-line bg-surface/90 px-3.5 py-2.5 text-[11px] backdrop-blur">
-          <p className="mb-1.5 font-num font-semibold tracking-widest text-faint">ENTITY TYPES</p>
           <div className="flex flex-col gap-1">
             <span className="flex items-center gap-1.5 text-mut"><span className="h-2.5 w-2.5 rounded-full border border-amber bg-amber/20" />小组（点击聚焦）</span>
             <span className="flex items-center gap-1.5 text-mut"><span className="h-2.5 w-2.5 rounded-full bg-neon" />球队（点击看信息）</span>
             <span className="flex items-center gap-1.5 text-mut"><span className="h-2 w-2 rounded-full border border-mut bg-surface" />比赛（点击可推演）</span>
-            <span className="flex items-center gap-1.5 text-mut"><span className="anim-pulse-dot h-2 w-2 rounded-full bg-live" />进行中</span>
           </div>
         </div>
 
-        {/* 信息面板（右下） */}
         {selected && (selected.team || selected.match) && (
           <div className="anim-fade-up absolute bottom-3 right-3 w-64 rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur">
             {selected.team && (
               <>
                 <div className="flex items-center gap-2">
-                  {selected.team.logo && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={selected.team.logo} alt="" className="h-6 w-6 object-contain" />
-                  )}
+                  {selected.team.logo && <img src={selected.team.logo} alt="" className="h-6 w-6 object-contain" />}
                   <span className="font-semibold text-ink">{selected.team.name}</span>
                   {selected.team.group && <span className="chip !px-1.5 !text-[10px]">{selected.team.group}组</span>}
                 </div>
                 {selected.team.players > 0 && (
                   <p className="font-num mt-1.5 text-xs text-mut">
-                    名单 {selected.team.players} 人
-                    {selected.team.avgAge ? ` · 平均 ${selected.team.avgAge} 岁` : ""}
+                    名单 {selected.team.players} 人{selected.team.avgAge ? ` · 平均 ${selected.team.avgAge} 岁` : ""}
                   </p>
                 )}
                 <div className="mt-2 space-y-1 border-t border-line pt-2">
                   {teamMatches.map((m) => (
-                    <Link
-                      key={m.id}
-                      href={`/match/${m.id}`}
-                      className="flex items-center justify-between text-xs text-mut transition hover:text-neon"
-                    >
+                    <Link key={m.id} href={`/match/${m.id}`} className="flex items-center justify-between text-xs text-mut transition hover:text-neon">
                       <span className="truncate">
                         {m.homeId === selected.team!.id ? `vs ${teamName(m.awayId)}` : `@ ${teamName(m.homeId)}`}
                       </span>
@@ -497,18 +534,12 @@ export default function TournamentGraph() {
                   {selected.match.status === "finished" && ` · 终场 ${selected.match.homeScore}-${selected.match.awayScore}`}
                 </p>
                 <div className="mt-2.5 flex gap-2">
-                  <Link
-                    href={`/match/${selected.match.id}`}
-                    className="flex-1 rounded-lg border border-line py-1.5 text-center text-xs text-ink transition hover:border-neon/50"
-                  >
+                  <Link href={`/match/${selected.match.id}`} className="flex-1 rounded-lg border border-line py-1.5 text-center text-xs text-ink transition hover:border-neon/50">
                     比赛详情
                   </Link>
                   {selected.match.status !== "finished" && (
-                    <Link
-                      href={`/match/${selected.match.id}#ai`}
-                      className="flex-1 rounded-lg bg-amber py-1.5 text-center text-xs font-semibold text-white transition hover:brightness-110"
-                    >
-                      🔬 去推演
+                    <Link href={`/match/${selected.match.id}#ai`} className="flex-1 rounded-lg bg-neon py-1.5 text-center text-xs font-semibold text-white transition hover:brightness-110">
+                      去推演
                     </Link>
                   )}
                 </div>

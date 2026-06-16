@@ -80,12 +80,19 @@ create table if not exists reports (
 
 -- 用户与订阅（points 为虚拟积分：不可充值、不可提现，第 0 章第 5 条）
 create table if not exists profiles (
-  id            uuid primary key references auth.users(id),
+  id            uuid primary key,           -- 设备访客 id；登录后复用为账号统一 id（已去 auth.users 外键，见 20260611_games.sql）
   nickname      text,
   points        int default 0,
   sub_type      text,                       -- null / 'event_pass' / 'monthly'
-  sub_expires   timestamptz
+  sub_expires   timestamptz,
+  email         text,                       -- 邮箱账号（登录后绑定，见 20260613_auth.sql）
+  auth_user_id  uuid,                       -- 对应 Supabase Auth 用户
+  username      text                        -- 用户名（无需邮箱的登录方式，见 20260613_username.sql）
 );
+create unique index if not exists idx_profiles_email
+  on profiles (lower(email)) where email is not null;
+create unique index if not exists idx_profiles_auth_user
+  on profiles (auth_user_id) where auth_user_id is not null;
 
 -- 单场解锁记录（model_id 区分不同模型档位，同场同模型只扣一次积分）
 create table if not exists unlocks (
@@ -138,3 +145,19 @@ create policy "own unlocks" on unlocks for select using (auth.uid() = user_id);
 drop policy if exists "own predictions" on predictions;
 create policy "own predictions" on predictions for select using (auth.uid() = user_id);
 -- 写入（订阅、解锁、积分变动、竞猜结算）一律走服务端 service_role，防止客户端篡改
+
+-- 首页支持率投票（每人每场一票）
+create table if not exists support_votes (
+  id          bigserial primary key,
+  match_id    bigint not null references matches(id),
+  device_id   text not null,
+  pick        text not null check (pick in ('win', 'loss')),
+  created_at  timestamptz default now(),
+  unique(match_id, device_id)
+);
+create index if not exists support_votes_match_idx on support_votes(match_id);
+alter table support_votes enable row level security;
+drop policy if exists "public insert support_votes" on support_votes;
+drop policy if exists "public read support_votes" on support_votes;
+create policy "public insert support_votes" on support_votes for insert with check (true);
+create policy "public read support_votes" on support_votes for select using (true);

@@ -138,7 +138,14 @@ export default function AiReportPanel({
   const [deepBusy, setDeepBusy] = useState(false);
   const [deepMsg, setDeepMsg] = useState("");
   const [pointsAfterUnlock, setPointsAfterUnlock] = useState<number | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    import("@/lib/account-status").then(({ fetchLoginState }) => {
+      fetchLoginState().then(setIsLoggedIn);
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -179,6 +186,10 @@ export default function AiReportPanel({
   };
 
   const unlockDeep = async () => {
+    if (!isLoggedIn) {
+      setDeepMsg("请先登录账号后再解锁深度推演");
+      return;
+    }
     setDeepBusy(true);
     setDeepMsg("");
     try {

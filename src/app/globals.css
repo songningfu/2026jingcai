@@ -40,6 +40,25 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Segoe UI", sans-serif;
+  /* 移动端基础优化 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* 移除移动端点击高亮蓝框：只保留安全的触控优化，不改 a/button 的尺寸或布局 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 桌面端兜底恢复：防止旧的全局触控规则污染导航、筛选、赔率按钮 */
+@media (min-width: 640px) {
+  a,
+  button {
+    min-width: 0;
+    min-height: 0;
+  }
 }
 
 /* 数字（赔率/比分/概率）统一记分牌字体 */
@@ -103,10 +122,10 @@ body {
 /* AI 分析中：扫描线 */
 @keyframes scanline {
   0% {
-    transform: translateY(-100%);
+    top: -2px;
   }
   100% {
-    transform: translateY(420%);
+    top: 100%;
   }
 }
 .anim-scan {
@@ -151,4 +170,9 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+@keyframes danmaku-scroll {
+  from { right: -100%; }
+  to   { right: 110%; }
 }

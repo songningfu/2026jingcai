@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 
 export interface TickerMatch {
@@ -24,22 +25,53 @@ const dayTimeFmt = new Intl.DateTimeFormat("zh-CN", {
   hour12: false,
 });
 
-/** 首页横向比赛滚动条：所有比赛对阵一览，可点进详情 */
+/** 首页横向比赛速览：自动向左滚动，鼠标悬停暂停 */
 export default function MatchTicker({ matches }: { matches: TickerMatch[] }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number>(0);
+  const pausedRef = useRef(false);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const SPEED = 0.6; // px per frame
+    const step = () => {
+      if (!pausedRef.current && track) {
+        track.scrollLeft += SPEED;
+        // 无缝循环：滚到一半就跳回来（内容已复制一遍）
+        if (track.scrollLeft >= track.scrollWidth / 2) {
+          track.scrollLeft = 0;
+        }
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
+
   if (matches.length === 0) return null;
+  const doubled = [...matches, ...matches]; // 无缝循环复制
+
   return (
-    <div className="relative -mx-4">
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-pitch to-transparent" />
-      <div className="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-4 pb-2">
-      {matches.map((m) => {
+    <div
+      className="relative -mx-4"
+      onMouseEnter={() => { pausedRef.current = true; }}
+      onMouseLeave={() => { pausedRef.current = false; }}
+      onTouchStart={() => { pausedRef.current = true; }}
+      onTouchEnd={() => { pausedRef.current = false; }}
+    >
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-pitch to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-pitch to-transparent" />
+      <div ref={trackRef} className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-2" style={{ cursor: "default" }}>
+      {doubled.map((m, idx) => {
         const live = m.status === "live";
         const finished = m.status === "finished";
         return (
           <Link
-            key={m.id}
+            key={`${m.id}-${idx}`}
             href={`/match/${m.id}`}
-            className="card shrink-0 snap-start px-4 py-3 transition hover:border-neon/50"
-            style={{ minWidth: "11rem" }}
+            className="card shrink-0 px-3 py-2.5 transition hover:border-neon/50"
+            style={{ minWidth: "9.5rem" }}
           >
             <div className="mb-2 flex items-center justify-between text-[11px] text-faint">
               <span>{dayTimeFmt.format(new Date(m.kickoff))}</span>
@@ -61,6 +93,7 @@ export default function MatchTicker({ matches }: { matches: TickerMatch[] }) {
     </div>
   );
 }
+
 
 function TickerTeam({
   name,

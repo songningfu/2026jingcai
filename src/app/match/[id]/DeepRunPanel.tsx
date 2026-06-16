@@ -1,10 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDeviceId } from "@/lib/device-id";
 import type { DeepModelResult } from "@/lib/deep-model";
 import type { DeepAnalysis } from "@/lib/deep-run";
 import type { ModelOption, ModelTier } from "@/lib/models";
+
+const STAT_STEPS = [
+  "读取赔率数据…", "去水位处理…", "泊松分布测算…", "Dixon-Coles 修正…",
+  "拟合历史比分分布…", "计算联合概率矩阵…", "生成概率分布…", "输出报告…",
+];
+const MODEL_STEPS = [
+  "加载比赛上下文…", "检索双方近期数据…", "分析战术体系…", "评估人员状态…",
+  "解读赔率结构…", "推算关键变量权重…", "大模型深度推演…", "生成战术报告…",
+  "交叉验证推演结论…", "整理输出结果…",
+];
+
+// 按档位决定视觉延迟时长（ms）
+const TIER_DELAY: Record<ModelTier, number> = {
+  entry: 20_000,
+  advanced: 40_000,
+  flagship: 60_000,
+};
+
+function useLoadingSteps(steps: string[], active: boolean, totalMs: number) {
+  const [step, setStep] = useState(0);
+  const [visible, setVisible] = useState(true);
+  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      setStep(0);
+      setVisible(true);
+      const intervalMs = Math.floor(totalMs / steps.length);
+      ref.current = setInterval(() => {
+        // 先淡出，等 300ms 后切换文字再淡入
+        setVisible(false);
+        setTimeout(() => {
+          setStep(s => Math.min(s + 1, steps.length - 1));
+          setVisible(true);
+        }, 300);
+      }, intervalMs);
+    } else {
+      if (ref.current) clearInterval(ref.current);
+      setStep(0);
+      setVisible(true);
+    }
+    return () => { if (ref.current) clearInterval(ref.current); };
+  }, [active, steps.length, totalMs]);
+
+  return { text: steps[step], visible };
+}
 
 /**
  * 深度推演（合并版）：
@@ -57,6 +103,9 @@ export default function DeepRunPanel({
   const [runMsg, setRunMsg] = useState("");
   const [runModelName, setRunModelName] = useState("");
 
+  const { text: statStep, visible: statVisible } = useLoadingSteps(STAT_STEPS, statBusy, 8_000);
+  const { text: modelStep, visible: modelVisible } = useLoadingSteps(MODEL_STEPS, runBusy, TIER_DELAY[selected?.tier ?? "entry"]);
+
   const runStat = async () => {
     setStatBusy(true);
     try {
@@ -66,7 +115,11 @@ export default function DeepRunPanel({
         body: JSON.stringify({ matchId }),
       });
       const data = await res.json();
-      if (data.ok) setStat(data.result);
+      if (data.ok) {
+        // 视觉延长：至少显示 8s 加载动画
+        await new Promise(r => setTimeout(r, 8_000));
+        setStat(data.result);
+      }
     } finally {
       setStatBusy(false);
     }
@@ -83,6 +136,8 @@ export default function DeepRunPanel({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.message || data.error || "开启失败");
+      // 视觉延长：按模型档位延长（entry 20s / advanced 40s / flagship 60s）
+      await new Promise(r => setTimeout(r, TIER_DELAY[selected?.tier ?? "entry"]));
       setAnalysis(data.analysis);
       setRunModelName(data.model?.name ?? selected?.name ?? "");
       setRunMsg(
@@ -117,7 +172,11 @@ export default function DeepRunPanel({
             数据模型 · 比分概率
           </span>
           <span className="mt-2 block text-base font-semibold text-ink">
-            {statBusy ? "测算中…" : "▶ 运行概率模型（免费）"}
+            {statBusy ? (
+              <span className={`transition-opacity duration-300 ${statVisible ? "opacity-100" : "opacity-0"}`}>
+                {statStep}
+              </span>
+            ) : "▶ 运行概率模型（免费）"}
           </span>
           <span className="mt-1 block text-xs text-faint">
             赔率去水位 + 双变量泊松 + Dixon-Coles · 量化不确定性，非预测胜负
@@ -187,9 +246,11 @@ export default function DeepRunPanel({
             disabled={runBusy}
             className="mt-4 w-full rounded-lg bg-amber py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:bg-raised disabled:text-faint"
           >
-            {runBusy
-              ? `${selected?.name ?? ""} 推演中…`
-              : `开启推演 · ${selected?.name ?? ""} · ${selected?.cost ?? ""} 积分`}
+            {runBusy ? (
+            <span className={`transition-opacity duration-300 ${modelVisible ? "opacity-100" : "opacity-0"}`}>
+              {modelStep}
+            </span>
+          ) : `开启推演 · ${selected?.name ?? ""} · ${selected?.cost ?? ""} 积分`}
           </button>
         )}
         {runMsg && (

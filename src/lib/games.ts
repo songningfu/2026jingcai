@@ -10,11 +10,13 @@ import { getModel } from "./models";
 import { activeTier, checkinBonus, effectiveCost } from "./subscriptions";
 import { supabaseAdmin } from "./supabase";
 
-export const STARTING_POINTS = 1000;
-export const CHECKIN_POINTS = 100;
+export const STARTING_POINTS = 300;
+export const CHECKIN_POINTS = 40;
 export const MIN_STAKE = 10;
 export const DEFAULT_MULTIPLIER = 2.0;
-export const DEEP_PREDICTION_COST = 200;
+export const DEEP_PREDICTION_COST = 300;
+export const INVITE_BONUS_INVITEE = 300; // 使用邀请码的新用户奖励
+export const INVITE_BONUS_INVITER = 150; // 邀请者每成功邀请一人奖励
 
 export type Pick = "win" | "draw" | "loss";
 const PICK_TO_OUTCOME: Record<Pick, string> = { win: "主胜", draw: "平", loss: "客胜" };
@@ -25,6 +27,8 @@ export interface Profile {
   nickname: string | null;
   points: number;
   last_checkin: string | null;
+  invite_code: string | null;
+  invited_by: string | null;
 }
 
 export interface PredictionView {
@@ -197,40 +201,115 @@ export async function openDeepRun(
   return { ok: true, message: `已消耗 ${charge} 积分`, points: next };
 }
 
+/** 生成 6 位大写字母数字邀请码（UUID 哈希，保证唯一） */
+function makeInviteCode(deviceId: string): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去掉易混淆的 0/O/1/I
+  // 用 deviceId 的若干字节做确定性种子，再加时间戳
+  const seed = deviceId.replace(/-/g, "") + Date.now().toString(36);
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    const byte = parseInt(seed.slice(i * 2, i * 2 + 2), 16) || Math.floor(Math.random() * 256);
+    code += chars[byte % chars.length];
+  }
+  return code;
+}
+
 /** 注册或读取设备身份对应的 profile；首次创建赠初始积分 */
 export async function registerOrGet(deviceId: string, nickname?: string): Promise<Profile> {
   const db = supabaseAdmin();
   const { data: existing } = await db
     .from("profiles")
-    .select("id, nickname, points, last_checkin")
+    .select("id, nickname, points, last_checkin, invite_code, invited_by")
     .eq("id", deviceId)
     .maybeSingle();
 
   if (existing) {
+    // 自动补全旧用户缺失的邀请码
+    if (!existing.invite_code) {
+      const code = makeInviteCode(deviceId);
+      await db.from("profiles").update({ invite_code: code }).eq("id", deviceId);
+      existing.invite_code = code;
+    }
     if (nickname && nickname.trim() && nickname.trim() !== existing.nickname) {
       const { data: updated } = await db
         .from("profiles")
         .update({ nickname: nickname.trim().slice(0, 16), updated_at: new Date().toISOString() })
         .eq("id", deviceId)
-        .select("id, nickname, points, last_checkin")
+        .select("id, nickname, points, last_checkin, invite_code, invited_by")
         .single();
       return updated as Profile;
     }
     return existing as Profile;
   }
 
+  const inviteCode = makeInviteCode(deviceId);
   const { data: created, error } = await db
     .from("profiles")
     .insert({
       id: deviceId,
       nickname: nickname?.trim().slice(0, 16) || `球迷${deviceId.slice(0, 4)}`,
       points: STARTING_POINTS,
+      invite_code: inviteCode,
     })
-    .select("id, nickname, points, last_checkin")
+    .select("id, nickname, points, last_checkin, invite_code, invited_by")
     .single();
   if (error) throw new Error(`创建用户失败: ${error.message}`);
   await addPoints(deviceId, STARTING_POINTS, "signup");
   return created as Profile;
+}
+
+/**
+ * 兑换邀请码：新设备输入他人邀请码，双方获得积分奖励。
+ * 限制：每设备只能用一次；不能用自己的码。
+ */
+export async function redeemInviteCode(
+  deviceId: string,
+  code: string,
+): Promise<{ ok: boolean; message: string; points?: number }> {
+  const db = supabaseAdmin();
+  const normalized = code.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(normalized)) {
+    return { ok: false, message: "邀请码格式不正确" };
+  }
+
+  const profile = await registerOrGet(deviceId);
+
+  // 已用过邀请码
+  if (profile.invited_by) {
+    return { ok: false, message: "你已经使用过邀请码了" };
+  }
+
+  // 查找邀请者
+  const { data: inviter } = await db
+    .from("profiles")
+    .select("id, points, invite_code")
+    .eq("invite_code", normalized)
+    .maybeSingle();
+
+  if (!inviter) return { ok: false, message: "邀请码不存在" };
+  if (inviter.id === deviceId) return { ok: false, message: "不能使用自己的邀请码" };
+
+  // 给被邀请者加分
+  const newPoints = profile.points + INVITE_BONUS_INVITEE;
+  await db
+    .from("profiles")
+    .update({ points: newPoints, invited_by: inviter.id, updated_at: new Date().toISOString() })
+    .eq("id", deviceId);
+  await addPoints(deviceId, INVITE_BONUS_INVITEE, "invite_redeem");
+
+  // 给邀请者加分
+  const inviterNewPoints = inviter.points + INVITE_BONUS_INVITER;
+  await db
+    .from("profiles")
+    .update({ points: inviterNewPoints, updated_at: new Date().toISOString() })
+    .eq("id", inviter.id);
+  await addPoints(inviter.id, INVITE_BONUS_INVITER, "invite_reward");
+
+  // 写邀请事件流水
+  // 写邀请事件流水（忽略重复写入错误）
+  await db.from("invite_events").insert({ inviter_id: inviter.id, invitee_id: deviceId });
+
+  return { ok: true, message: `邀请码有效！获得 ${INVITE_BONUS_INVITEE} 积分奖励`, points: newPoints };
 }
 
 /** 每日签到：每个北京时间自然日一次 */
@@ -243,7 +322,7 @@ export async function checkin(
   if (profile.last_checkin === today) {
     return { ok: false, points: profile.points, awarded: 0, message: "今天已签到，明天再来" };
   }
-  // 签到积分按订阅档位加成（Free 100 / Pro 200 / Max 300）
+  // 签到积分按订阅档位加成（Free 40 / Pro 200 / Max 300）
   const { data: sub } = await db
     .from("profiles")
     .select("sub_type, sub_expires")
@@ -411,12 +490,13 @@ export async function settleFinishedMatches(): Promise<{ matches: number; settle
   return { matches: count, settled };
 }
 
-/** 我的资料 + 竞猜记录 */
+/** 我的资料 + 竞猜记录 + 邀请信息 */
 export async function getMe(deviceId: string): Promise<{
   profile: Profile;
   predictions: PredictionView[];
   unlocks: UnlockView[];
   rank: number | null;
+  inviteCount: number;
 }> {
   const db = supabaseAdmin();
   const profile = await registerOrGet(deviceId);
@@ -439,11 +519,18 @@ export async function getMe(deviceId: string): Promise<{
     .select("id", { count: "exact", head: true })
     .gt("points", profile.points);
 
+  // 我邀请成功的人数
+  const { count: inviteCount } = await db
+    .from("invite_events")
+    .select("id", { count: "exact", head: true })
+    .eq("inviter_id", deviceId);
+
   return {
     profile,
     predictions: (predictions ?? []) as PredictionView[],
     unlocks: (unlocks ?? []) as UnlockView[],
     rank: typeof count === "number" ? count + 1 : null,
+    inviteCount: inviteCount ?? 0,
   };
 }
 
