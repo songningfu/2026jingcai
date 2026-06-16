@@ -11,7 +11,7 @@
 Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 + Supabase (PostgreSQL)，从产品设计到上线全程一人完成。
 
 ### 2. AI 深度推演系统
-- 接入 DeepSeek API，基于赛前数据（历史战绩、阵容实力、赔率结构）生成多维度分析报告
+- 接入 大模型 API，基于赛前数据（历史战绩、阵容实力、赔率结构）生成多维度分析报告
 - Server-Sent Events (SSE) 流式输出，10步推演实时推进，含150s超时兜底与 keepalive 心跳
 - 比分热力图、总进球概率分布、晋级路线树可视化
 
@@ -46,7 +46,7 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 + Supabase (PostgreSQL)，
                          │
            ┌─────────────┼──────────────┐
            ▼             ▼              ▼
-     Supabase DB    DeepSeek AI   football-data.org
+     Supabase DB    大模型 AI   football-data.org
     (PostgreSQL)  (推演/快讯摘要)   (赛程/比分)
            ▲
            │ /api/odds/ingest
