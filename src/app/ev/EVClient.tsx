@@ -1,63 +1,22 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import type { EvMatch, EVResult, EvPick, EvParlay } from "@/lib/ev-engine";
 import { analyzeMatches, EV_VALUE, MAX_SINGLE, KELLY_FRACTION } from "@/lib/ev-engine";
 import { DISCLAIMER } from "@/lib/odds";
 
 // ── 工具 ───────────────────────────────────────────────────
 
-function pct(x: number, d = 1) {
-  return `${(x * 100).toFixed(d)}%`;
-}
+function pct(x: number, d = 1) { return `${(x * 100).toFixed(d)}%`; }
+
 function evColor(ev: number) {
   if (ev >= 0.15) return "text-neon font-semibold";
   if (ev >= 0.05) return "text-neon/70";
   if (ev <= -0.1) return "text-live";
   return "text-mut";
 }
-function numOr(s: string): number | null {
-  const n = parseFloat(s);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
 
-// ── 参考盘输入状态 ─────────────────────────────────────────
-
-interface RefState {
-  open: boolean;
-  spf: { w: string; d: string; l: string };       // 胜平负赔率
-  dxq: { line: string; big: string; small: string }; // 大小球
-  ab: { line: string; home: string; away: string }; // 亚盘
-}
-
-function emptyRef(): RefState {
-  return {
-    open: false,
-    spf: { w: "", d: "", l: "" },
-    dxq: { line: "", big: "", small: "" },
-    ab: { line: "", home: "", away: "" },
-  };
-}
-
-/** 把用户填的 RefState 合并进 EvMatch.refMarkets */
-function applyRef(match: EvMatch, ref: RefState): EvMatch {
-  const rm: Record<string, Record<string, number>> = {};
-
-  const w = numOr(ref.spf.w), d = numOr(ref.spf.d), l = numOr(ref.spf.l);
-  if (w && d && l) rm["胜平负"] = { 胜: w, 平: d, 负: l };
-
-  const dLine = parseFloat(ref.dxq.line), big = numOr(ref.dxq.big), small = numOr(ref.dxq.small);
-  if (Number.isFinite(dLine) && big && small)
-    rm["大小球"] = { line: dLine, 大: big, 小: small };
-
-  const aLine = parseFloat(ref.ab.line), ah = numOr(ref.ab.home), aa = numOr(ref.ab.away);
-  if (Number.isFinite(aLine) && ah && aa)
-    rm["亚盘"] = { line: aLine, 主: ah, 客: aa };
-
-  return { ...match, refMarkets: rm };
-}
-
-// ── 资金计划 ───────────────────────────────────────────────
+// ── 资金计划（纯客户端，无需引擎） ─────────────────────────
 
 function kellyCalc(p: number, o: number) {
   const b = o - 1;
@@ -81,76 +40,6 @@ function computePlan(parlays: EvParlay[], bankroll: number) {
 }
 
 // ── 子组件 ─────────────────────────────────────────────────
-
-function RefInput({ mid, state, onChange }: {
-  mid: number;
-  state: RefState;
-  onChange: (mid: number, s: RefState) => void;
-}) {
-  const set = (patch: Partial<RefState>) => onChange(mid, { ...state, ...patch });
-  const inp = "w-20 border border-line rounded px-2 py-1 text-xs font-num bg-surface focus:outline-none focus:border-neon";
-
-  if (!state.open) {
-    return (
-      <button
-        onClick={() => set({ open: true })}
-        className="text-xs text-neon/70 hover:text-neon underline underline-offset-2 mt-1"
-      >
-        + 添加参考盘赔率
-      </button>
-    );
-  }
-
-  return (
-    <div className="mt-2 p-3 rounded-xl bg-raised border border-line space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-mut">参考盘（锐盘，仅用于标定真概率）</span>
-        <button onClick={() => set({ open: false })} className="text-faint hover:text-mut text-xs">收起</button>
-      </div>
-
-      {/* 胜平负 */}
-      <div>
-        <p className="text-xs text-faint mb-1.5">胜平负赔率（主胜 / 平 / 客胜）</p>
-        <div className="flex gap-2">
-          <input placeholder="主胜" value={state.spf.w} className={inp}
-            onChange={e => set({ spf: { ...state.spf, w: e.target.value } })} />
-          <input placeholder="平" value={state.spf.d} className={inp}
-            onChange={e => set({ spf: { ...state.spf, d: e.target.value } })} />
-          <input placeholder="客胜" value={state.spf.l} className={inp}
-            onChange={e => set({ spf: { ...state.spf, l: e.target.value } })} />
-        </div>
-      </div>
-
-      {/* 大小球 */}
-      <div>
-        <p className="text-xs text-faint mb-1.5">大小球（盘口 / 大 / 小）</p>
-        <div className="flex gap-2">
-          <input placeholder="2.5" value={state.dxq.line} className={inp}
-            onChange={e => set({ dxq: { ...state.dxq, line: e.target.value } })} />
-          <input placeholder="大" value={state.dxq.big} className={inp}
-            onChange={e => set({ dxq: { ...state.dxq, big: e.target.value } })} />
-          <input placeholder="小" value={state.dxq.small} className={inp}
-            onChange={e => set({ dxq: { ...state.dxq, small: e.target.value } })} />
-        </div>
-      </div>
-
-      {/* 亚盘 */}
-      <div>
-        <p className="text-xs text-faint mb-1.5">亚盘（让球线 / 主 / 客，让球线如 -0.5）</p>
-        <div className="flex gap-2">
-          <input placeholder="-0.5" value={state.ab.line} className={inp}
-            onChange={e => set({ ab: { ...state.ab, line: e.target.value } })} />
-          <input placeholder="主" value={state.ab.home} className={inp}
-            onChange={e => set({ ab: { ...state.ab, home: e.target.value } })} />
-          <input placeholder="客" value={state.ab.away} className={inp}
-            onChange={e => set({ ab: { ...state.ab, away: e.target.value } })} />
-        </div>
-      </div>
-
-      <p className="text-xs text-faint">填完后点「运行分析」即可。留空的项目引擎自动退回体彩盘标定。</p>
-    </div>
-  );
-}
 
 function PickTable({ picks, label, desc, cls }: {
   picks: EvPick[]; label: string; desc: string; cls: string;
@@ -204,7 +93,7 @@ function ParlayCard({ parlay, rank }: { parlay: EvParlay; rank: number }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2">
         <span className="text-xs text-mut">#{rank}</span>
         <span className="font-num text-amber text-sm">{parlay.odds.toFixed(2)}x</span>
-        <span className="font-num text-sm text-mut">{pct(parlay.pModel)} 命中率</span>
+        <span className="font-num text-sm text-mut">{pct(parlay.pModel)} 命中</span>
         <span className={`font-num text-sm ${evColor(parlay.ev)}`}>
           EV {parlay.ev >= 0 ? "+" : ""}{pct(parlay.ev)}
         </span>
@@ -229,9 +118,7 @@ function ParlayCard({ parlay, rank }: { parlay: EvParlay; rank: number }) {
 function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
   const [bankroll, setBankroll] = useState(1000);
   const plan = computePlan(parlays, bankroll);
-
   if (plan.entries.length === 0) return null;
-
   return (
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
@@ -253,10 +140,7 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
       </div>
       <div className="space-y-2">
         {plan.entries.map(({ parlay, stake }, i) => {
-          const legs = parlay.legs.map(l => {
-            const team = l.game.split(" vs ")[0];
-            return `${team}·${l.outcome}`;
-          }).join(" + ");
+          const legs = parlay.legs.map(l => `${l.game.split(" vs ")[0]}·${l.outcome}`).join(" + ");
           return (
             <div key={i} className="flex items-center justify-between text-sm border-b border-line pb-2 last:border-0">
               <div className="flex-1 min-w-0">
@@ -271,15 +155,15 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
             </div>
           );
         })}
-        <div className="flex justify-between text-sm pt-1 text-mut">
-          <span>合计 / 最大回撤</span>
+        <div className="flex justify-between text-sm pt-1">
+          <span className="text-mut">合计 / 最大回撤</span>
           <span className="font-num">
             <span className="text-ink font-semibold">{plan.totalStake.toFixed(0)} 元</span>
             <span className="text-faint text-xs ml-1">（占本金 {pct(plan.totalStake / bankroll)}）</span>
           </span>
         </div>
-        <div className="flex justify-between text-sm text-mut">
-          <span>期望盈利</span>
+        <div className="flex justify-between text-sm">
+          <span className="text-mut">期望盈利</span>
           <span className={`font-num ${plan.expProfit >= 0 ? "text-neon" : "text-live"}`}>
             {plan.expProfit >= 0 ? "+" : ""}{plan.expProfit.toFixed(0)} 元
           </span>
@@ -296,10 +180,8 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
 
 export default function EVClient({ matches }: { matches: EvMatch[] }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [refMap, setRefMap] = useState<Record<number, RefState>>({});
   const [result, setResult] = useState<EVResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [legs, setLegs] = useState<2 | 3>(2);
 
   const toggleMatch = (id: number) => {
     setSelected(prev => {
@@ -311,45 +193,32 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
   };
 
   const toggleAll = () => {
-    if (selected.size === matches.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(matches.map(m => m.matchId)));
-    }
+    setSelected(prev =>
+      prev.size === matches.length ? new Set() : new Set(matches.map(m => m.matchId))
+    );
     setResult(null);
   };
 
-  const updateRef = useCallback((mid: number, s: RefState) => {
-    setRefMap(prev => ({ ...prev, [mid]: s }));
-    setResult(null);
-  }, []);
-
   const runAnalysis = () => {
-    const chosen = matches
-      .filter(m => selected.has(m.matchId))
-      .map(m => applyRef(m, refMap[m.matchId] ?? emptyRef()));
-
+    const chosen = matches.filter(m => selected.has(m.matchId));
     if (chosen.length === 0) return;
     setLoading(true);
     setResult(null);
-
-    // 让 React 先渲染 loading 状态，再开始密集计算
     setTimeout(() => {
-      const r = analyzeMatches(chosen);
-      setResult(r);
+      setResult(analyzeMatches(chosen));
       setLoading(false);
     }, 30);
   };
 
-  const allValueParlays = result
-    ? [...(result.parlays2.value), ...(result.parlays3.value)].slice(0, 5)
+  const valueParlays = result
+    ? [...result.parlays2.value, ...result.parlays3.value].slice(0, 5)
     : [];
 
   if (matches.length === 0) {
     return (
       <div className="card p-6 text-center text-mut text-sm">
         <p>暂无可分析的场次。</p>
-        <p className="text-xs text-faint mt-1">需要近期有赔率的未开赛场次，请等待赔率同步后再查看。</p>
+        <p className="text-xs text-faint mt-1">需要近期有赔率的未开赛场次，请等待赔率同步。</p>
       </div>
     );
   }
@@ -357,86 +226,66 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
   return (
     <div className="space-y-6">
 
-      {/* ── 参考盘说明 ────────────────────────────── */}
+      {/* 说明条 */}
       <div className="rounded-xl bg-raised/60 border border-line p-4 text-xs text-mut leading-relaxed">
-        <strong className="text-ink">两套盘口原理：</strong>
-        体彩盘是下注源；参考盘（Pinnacle / 亚盘）是真概率锚——贴水低、定价专业，
-        用来标定λ再反评体彩赔率，体彩赔率高于真概率该有的水平才是真 +EV。
-        <span className="block mt-0.5 text-faint">没有参考盘时引擎自动用体彩盘自评（精度受限），可手动填入参考盘赔率提升准确度。</span>
+        <strong className="text-ink">工作原理：</strong>
+        从亚盘（The Odds API · Pinnacle 锐盘）+ 大小球反解两队期望进球 λ（优先级：亚盘×3 &gt; 大小球×2 &gt; 胜平负×1），
+        再用同一套泊松-DC 模型评估体彩赔率——体彩赔率高于模型价值的地方就是 +EV。
+        <span className="block mt-0.5 text-faint">无参考盘时自动退回体彩盘自评（标注「体彩盘」）。</span>
       </div>
 
-      {/* ── 场次选择 ──────────────────────────────── */}
+      {/* 选场 + 运行 */}
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-ink">选择分析场次</h2>
-          <button
-            onClick={toggleAll}
-            className="text-xs text-neon hover:text-neon-dim underline underline-offset-2"
-          >
+          <button onClick={toggleAll} className="text-xs text-neon hover:text-neon-dim underline underline-offset-2">
             {selected.size === matches.length ? "取消全选" : "全选"}
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {matches.map(m => {
             const isSelected = selected.has(m.matchId);
-            const ref = refMap[m.matchId] ?? emptyRef();
-            const hasRef = ref.spf.w || ref.dxq.big || ref.ab.home;
+            const hasRef = Object.keys(m.refMarkets).length > 0;
             const kickoff = new Date(m.kickoffAt).toLocaleString("zh-CN", {
               timeZone: "Asia/Shanghai", month: "numeric", day: "numeric",
               hour: "2-digit", minute: "2-digit",
             });
-
             return (
-              <div
+              <label
                 key={m.matchId}
-                className={`rounded-xl border transition ${isSelected ? "border-neon/40 bg-neon/3" : "border-line bg-surface"}`}
+                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer select-none transition ${
+                  isSelected ? "border-neon/40 bg-neon/[0.03]" : "border-line bg-surface hover:bg-raised/40"
+                }`}
               >
-                <label className="flex items-center gap-3 p-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox" checked={isSelected}
-                    onChange={() => toggleMatch(m.matchId)}
-                    className="accent-neon w-4 h-4 shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-ink text-sm">{m.home} vs {m.away}</span>
-                      {hasRef && <span className="chip bg-neon/10 text-neon text-xs">有参考盘</span>}
-                    </div>
-                    <span className="text-xs text-faint">{kickoff} · 体彩玩法 {Object.keys(m.markets).join(" / ")}</span>
+                <input
+                  type="checkbox" checked={isSelected}
+                  onChange={() => toggleMatch(m.matchId)}
+                  className="accent-neon w-4 h-4 shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-ink text-sm">{m.home} vs {m.away}</span>
+                    {hasRef
+                      ? <span className="chip bg-neon/10 text-neon text-xs">亚盘参考</span>
+                      : <span className="chip text-xs text-faint">体彩自评</span>
+                    }
                   </div>
-                </label>
-
-                {isSelected && (
-                  <div className="px-4 pb-3">
-                    <RefInput mid={m.matchId} state={ref} onChange={updateRef} />
-                  </div>
-                )}
-              </div>
+                  <span className="text-xs text-faint">
+                    {kickoff} · {Object.keys(m.markets).join(" · ")}
+                  </span>
+                </div>
+              </label>
             );
           })}
         </div>
 
-        {/* 串关选项 + 运行按钮 */}
-        <div className="flex items-center gap-4 mt-5 pt-4 border-t border-line">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-mut">串关</span>
-            {([2, 3] as const).map(n => (
-              <button
-                key={n}
-                onClick={() => setLegs(n)}
-                className={`chip transition ${legs === n ? "bg-neon/15 text-neon border-neon/30" : ""}`}
-              >
-                {n} 串 1
-              </button>
-            ))}
-          </div>
-          <div className="flex-1" />
-          <span className="text-xs text-mut">已选 {selected.size} 场</span>
+        <div className="flex items-center justify-between mt-5 pt-4 border-t border-line">
+          <span className="text-sm text-mut">已选 <span className="font-num text-ink">{selected.size}</span> 场</span>
           <button
             onClick={runAnalysis}
             disabled={selected.size === 0 || loading}
-            className={`px-5 py-2 rounded-full text-sm font-medium transition ${
+            className={`px-6 py-2 rounded-full text-sm font-medium transition ${
               selected.size === 0 || loading
                 ? "bg-raised text-faint cursor-not-allowed"
                 : "bg-neon text-white hover:bg-neon-dim active:scale-95"
@@ -447,22 +296,23 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
         </div>
       </section>
 
-      {/* ── 分析结果 ──────────────────────────────── */}
+      {/* Loading */}
       {loading && (
         <div className="card p-8 text-center">
           <div className="inline-block w-6 h-6 border-2 border-neon border-t-transparent rounded-full anim-spin mb-3" />
-          <p className="text-sm text-mut">正在标定 λ、推导模型概率…</p>
+          <p className="text-sm text-mut">标定 λ · 推导模型概率…</p>
         </div>
       )}
 
+      {/* 结果 */}
       {result && !loading && (
         <div className="space-y-6">
 
-          {/* 场次速览表 */}
+          {/* 速览表 */}
           <section className="card p-5">
             <h2 className="font-semibold text-ink mb-3">场次速览</h2>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[540px] text-sm">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="text-xs text-faint border-b border-line">
                     <th className="py-2 px-2 text-left">对阵</th>
@@ -499,35 +349,31 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
           </section>
 
           {/* 各场三档分析 */}
-          {result.analyses.map(a => {
-            const hasAny = a.value.length > 0 || a.stable.length > 0 || a.longshot.length > 0;
-            return (
-              <section key={a.match.matchId} className="card p-5 space-y-5">
-                <div>
-                  <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
-                  <p className="text-xs text-mut mt-0.5">
-                    λ主 <span className="font-num text-ink">{a.lamH.toFixed(2)}</span>
-                    {" · "}λ客 <span className="font-num text-ink">{a.lamA.toFixed(2)}</span>
-                    {" · "}预期总进球 <span className="font-num text-amber">{(a.lamH + a.lamA).toFixed(2)}</span>
-                    {" · 标定源："}{a.calibSource}
-                  </p>
-                </div>
+          {result.analyses.map(a => (
+            <section key={a.match.matchId} className="card p-5 space-y-5">
+              <div>
+                <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
+                <p className="text-xs text-mut mt-0.5">
+                  λ主 <span className="font-num text-ink">{a.lamH.toFixed(2)}</span>
+                  {" · "}λ客 <span className="font-num text-ink">{a.lamA.toFixed(2)}</span>
+                  {" · "}预期总进球 <span className="font-num text-amber">{(a.lamH + a.lamA).toFixed(2)}</span>
+                  {" · "}标定源：{a.calibSource}
+                </p>
+              </div>
+              {a.value.length === 0 && a.stable.length === 0 && a.longshot.length === 0 && (
+                <p className="text-sm text-faint">本场无显著偏差点（各玩法 EV 均为负或不显著）</p>
+              )}
+              <PickTable label="价值档" desc="EV ≥ 10%，正期望 · 主推" picks={a.value} cls="bg-amber/10 text-amber" />
+              <PickTable label="稳健档" desc="命中率 ≥ 58%，不等于正期望" picks={a.stable} cls="bg-neon/10 text-neon" />
+              <PickTable label="博胆档" desc="冷门赔率 ≥ 5，正期望高方差" picks={a.longshot} cls="bg-live/10 text-live" />
+            </section>
+          ))}
 
-                {!hasAny && <p className="text-sm text-faint">本场无显著偏差点（各玩法 EV 均为负或不显著）</p>}
-
-                <PickTable label="价值档" desc="EV ≥ 10%，正期望 · 主推" picks={a.value} cls="bg-amber/10 text-amber" />
-                <PickTable label="稳健档" desc="命中率 ≥ 58%，不等于正期望" picks={a.stable} cls="bg-neon/10 text-neon" />
-                <PickTable label="博胆档" desc="冷门赔率 ≥ 5，正期望高方差" picks={a.longshot} cls="bg-live/10 text-live" />
-              </section>
-            );
-          })}
-
-          {/* 串关推荐 */}
+          {/* 价值串关 */}
           {(result.parlays2.value.length > 0 || result.parlays3.value.length > 0) && (
             <section>
               <h2 className="font-semibold text-ink mb-1">价值串关（全腿 +EV）</h2>
-              <p className="text-xs text-mut mb-3">每腿均正期望时，串关复利放大优势；混入负 EV 腿贴水被复利吃掉。</p>
-
+              <p className="text-xs text-mut mb-3">每腿均正期望，串关复利放大优势。混入负 EV 腿贴水被复利吃掉。</p>
               {result.parlays2.value.length > 0 && (
                 <div className="mb-4">
                   <p className="text-sm text-mut mb-2">2 串 1</p>
@@ -536,7 +382,6 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
                   </div>
                 </div>
               )}
-
               {result.parlays3.value.length > 0 && (
                 <div>
                   <p className="text-sm text-mut mb-2">3 串 1</p>
@@ -548,7 +393,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
             </section>
           )}
 
-          {/* 稳健串（参考） */}
+          {/* 稳健串 */}
           {result.parlays2.stable.length > 0 && (
             <section>
               <h2 className="font-semibold text-ink mb-1">稳健串（命中率优先）</h2>
@@ -560,15 +405,15 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
           )}
 
           {/* 资金计划 */}
-          {allValueParlays.length > 0 && <BankrollPlanner parlays={allValueParlays} />}
+          {valueParlays.length > 0 && <BankrollPlanner parlays={valueParlays} />}
 
-          {/* 免责 */}
+          {/* 免责声明 */}
           <div className="rounded-xl border border-line/60 p-4 bg-raised/40 text-xs text-faint leading-relaxed">
             <p className="font-medium text-mut mb-1">分析声明</p>
             <p>{DISCLAIMER}</p>
             <p className="mt-1">
-              EV 引擎仅做概率偏差测算。无参考锐盘时以体彩单一赔率标定，数学上无法"稳赚不赔"（赔率内置贴水）。
-              本页所有输出<strong>不构成任何投注建议</strong>。
+              参考盘赔率仅用于引擎内部标定，不展示给用户、不作为投注依据。
+              EV 测算基于模型假设，结果取决于赔率质量。本页所有输出<strong>不构成任何投注建议</strong>。
             </p>
           </div>
         </div>
