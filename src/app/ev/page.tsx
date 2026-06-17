@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { fetchEVMatches } from "@/lib/ev-data";
-import { analyzeMatches } from "@/lib/ev-engine";
 import EVClient from "./EVClient";
 
 export const metadata: Metadata = {
@@ -14,39 +13,15 @@ export const revalidate = 120;
 export default async function EVPage() {
   const matches = await fetchEVMatches().catch(() => []);
 
-  if (matches.length === 0) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="text-xl font-semibold text-ink mb-2">EV 分析</h1>
-        <p className="text-sm text-mut mb-6">
-          基于体彩官方赔率的期望值(EV)测算 · Dixon-Coles 泊松模型 · 三档分级
-        </p>
-        <div className="card p-6 text-center text-mut text-sm">
-          <p>暂无可分析的场次数据。</p>
-          <p className="text-xs text-faint mt-1">
-            需要近期有赔率的未开赛场次，请等待赔率同步后再查看。
-          </p>
-        </div>
-      </main>
-    );
-  }
-
-  const result = analyzeMatches(matches);
-
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10 space-y-6">
-      <div>
+    <main className="mx-auto max-w-3xl px-4 py-10">
+      <div className="mb-6">
         <h1 className="text-xl font-semibold text-ink">EV 分析</h1>
         <p className="text-sm text-mut mt-1">
-          基于体彩官方赔率 · Dixon-Coles 泊松模型 · 三档分级（稳健 / 价值 / 博胆）
-        </p>
-        <p className="text-xs text-faint mt-0.5">
-          共 {matches.length} 场 · 生成于{" "}
-          {new Date(result.generatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
+          选择场次 · 可选填参考盘（锐盘）赔率 · 期望值测算 + 三档分级 + 串关推荐
         </p>
       </div>
-
-      <EVClient result={result} />
+      <EVClient matches={matches} />
     </main>
   );
 }
