@@ -83,6 +83,9 @@ export interface EVResult {
   analyses: MatchAnalysis[];
   parlays2: { stable: EvParlay[]; value: EvParlay[]; longshot: EvParlay[] };
   parlays3: { stable: EvParlay[]; value: EvParlay[]; longshot: EvParlay[] };
+  parlays4: { stable: EvParlay[]; value: EvParlay[]; longshot: EvParlay[] };
+  /** 系统过关：从 N 腿中取所有 k 腿组合，数组元素为每注方案 */
+  systemBets: EvParlay[][];
   generatedAt: string;
 }
 
@@ -500,6 +503,38 @@ export function bankrollPlan(
 
 // ── 主分析入口 ─────────────────────────────────────────────
 
+/**
+ * 系统过关：从每场最佳单注中选出 topLegs 腿，生成所有 legSize 腿的组合
+ * 例: 3串3 = topLegs=3 legSize=2 → C(3,2)=3 注
+ */
+export function buildSystemBets(
+  matches: EvMatch[],
+  topLegs = 4,
+  legSize = 2,
+): EvParlay[] {
+  // 每场只取最佳 EV 单注
+  const bestPerMatch: EvPick[] = [];
+  for (const m of matches) {
+    const pool = candidatePool(m);
+    if (pool.length === 0) continue;
+    const best = pool.sort((a, b) => b.ev - a.ev)[0];
+    bestPerMatch.push(best);
+  }
+  if (bestPerMatch.length < legSize) return [];
+  const top = bestPerMatch.slice(0, topLegs);
+  const results: EvParlay[] = [];
+  for (const combo of combinations(top, legSize)) {
+    let odds = 1, p = 1, allPos = true;
+    for (const leg of combo) {
+      odds *= leg.odds;
+      p *= leg.pModel;
+      if (leg.ev <= 0) allPos = false;
+    }
+    results.push({ legs: combo, odds, pModel: p, ev: p * odds - 1, kelly: kellyCalc(p, odds), allPositive: allPos });
+  }
+  return results.sort((a, b) => b.ev - a.ev);
+}
+
 export function analyzeMatches(matches: EvMatch[]): EVResult {
   const analyses: MatchAnalysis[] = [];
 
@@ -514,6 +549,27 @@ export function analyzeMatches(matches: EvMatch[]): EVResult {
 
   const parlays2 = classifyParlays(enumerateParlays(matches, 2));
   const parlays3 = matches.length >= 3 ? classifyParlays(enumerateParlays(matches, 3)) : { stable: [], value: [], longshot: [] };
+  const parlays4 = matches.length >= 4 ? classifyParlays(enumerateParlays(matches, 4)) : { stable: [], value: [], longshot: [] };
 
-  return { analyses, parlays2, parlays3, generatedAt: new Date().toISOString() };
+  // 系统过关：从前4场各取最佳一腿，生成所有2腿组合（如 4串6 取2腿的情况）
+  const systemBets: EvParlay[][] = [];
+  if (matches.length >= 3) {
+    // 3串3：3腿各取最佳，生成C(3,2)=3注二串 + 1注三串
+    const sys3 = [
+      ...buildSystemBets(matches, 3, 2),
+      ...buildSystemBets(matches, 3, 3),
+    ];
+    if (sys3.length) systemBets.push(sys3);
+  }
+  if (matches.length >= 4) {
+    // 4串11：4腿各取最佳，生成C(4,2)+C(4,3)+C(4,4) = 11注
+    const sys4 = [
+      ...buildSystemBets(matches, 4, 2),
+      ...buildSystemBets(matches, 4, 3),
+      ...buildSystemBets(matches, 4, 4),
+    ];
+    if (sys4.length) systemBets.push(sys4);
+  }
+
+  return { analyses, parlays2, parlays3, parlays4, systemBets, generatedAt: new Date().toISOString() };
 }

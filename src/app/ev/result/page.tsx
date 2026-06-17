@@ -4,7 +4,7 @@ import { fetchEVMatches } from "@/lib/ev-data";
 import ResultView from "./ResultView";
 
 export const metadata: Metadata = {
-  title: "分析结果 — EV 分析",
+  title: "分析结果 — EV分析",
   description: "所选比赛的期望值分析结果。仅供数学分析参考，不构成购彩建议。",
 };
 

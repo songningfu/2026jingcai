@@ -36,8 +36,8 @@ function safeStake(p: number, o: number, bankroll: number) {
   return Math.min(bankroll * kellyCalc(p, o) * KELLY_FRACTION, bankroll * MAX_SINGLE);
 }
 function computePlan(parlays: EvParlay[], bankroll: number) {
-  let raw = parlays.filter(p => p.ev > EV_VALUE).slice(0, 5)
-    .map(p => ({ parlay: p, stake: safeStake(p.pModel, p.odds, bankroll) }));
+  let raw = parlays.filter(p => p.ev > EV_VALUE).slice(0, 6)
+    .map(p => ({ parlay: p, stake: Math.max(1, safeStake(p.pModel, p.odds, bankroll)) }));
   const total = raw.reduce((s, x) => s + x.stake, 0);
   const cap = bankroll * 0.2;
   if (total > cap && total > 0) raw = raw.map(x => ({ ...x, stake: x.stake * cap / total }));
@@ -270,64 +270,88 @@ function ParlayCard({ parlay, rank }: { parlay: EvParlay; rank: number }) {
 // ── 资金计划 ───────────────────────────────────────────────
 
 function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
-  const [bankroll, setBankroll] = useState(1000);
+  const [bankroll, setBankroll] = useState(200);
   const plan = computePlan(parlays, bankroll);
   if (plan.entries.length === 0) return null;
   return (
-    <div className="card p-5 space-y-4 anim-fade-up">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-ink">投入金额参考</h3>
-        <span className="chip text-xs">已自动封顶单注与总投入</span>
+    <div className="card overflow-hidden anim-fade-up">
+      {/* 标题栏 */}
+      <div className="px-5 py-3 bg-neon/5 border-b border-neon/10 flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-ink">⑤ 方案单（投入参考）</h3>
+          <p className="text-xs text-mut mt-0.5">凯利公式风控：单注 ≤本金{(MAX_SINGLE * 100).toFixed(0)}%，总投入 ≤20%</p>
+        </div>
+        <span className="chip text-xs bg-neon/10 text-neon">仅供参考</span>
       </div>
-      <p className="text-xs text-mut">
-        下面金额按数学风控自动算出：单笔最多本金 {(MAX_SINGLE * 100).toFixed(0)}%，全部加起来不超过 20%。仅为参考，非购彩建议。
-      </p>
-      <div className="flex items-center gap-3">
-        <label className="text-sm text-mut shrink-0">本金（元）</label>
-        <input
-          type="number" min={100} max={100000} step={100} value={bankroll}
-          onChange={e => setBankroll(Math.max(100, Number(e.target.value)))}
-          className="border border-line rounded-lg px-3 py-1.5 text-sm font-num tabular-nums w-28 bg-surface focus:outline-none focus:border-neon"
-        />
-        <input
-          type="range" min={100} max={10000} step={100} value={Math.min(bankroll, 10000)}
-          onChange={e => setBankroll(Number(e.target.value))}
-          className="flex-1 accent-neon"
-        />
-      </div>
-      <div className="space-y-2">
-        {plan.entries.map(({ parlay, stake }, i) => {
-          const legs = parlay.legs.map(l => `${l.game.split(" vs ")[0]}·${l.outcome}`).join(" + ");
-          return (
-            <div key={i} className="flex items-center justify-between text-sm border-b border-line pb-2 last:border-0">
-              <div className="flex-1 min-w-0">
-                <span className="text-xs text-mut">注{i + 1}：</span>
-                <span className="text-xs text-ink/80 truncate">{legs}</span>
+
+      <div className="p-5 space-y-4">
+        {/* 本金输入 */}
+        <div className="flex items-center gap-3">
+          <label className="text-sm text-mut shrink-0">本金（元）</label>
+          <input
+            type="number" min={10} max={100000} step={10} value={bankroll}
+            onChange={e => setBankroll(Math.max(10, Number(e.target.value)))}
+            className="border border-line rounded-lg px-3 py-1.5 text-sm font-num tabular-nums w-28 bg-surface focus:outline-none focus:border-neon"
+          />
+          <input
+            type="range" min={10} max={5000} step={10} value={Math.min(bankroll, 5000)}
+            onChange={e => setBankroll(Number(e.target.value))}
+            className="flex-1 accent-neon"
+          />
+        </div>
+
+        {/* 方案列表——购彩单样式 */}
+        <div className="rounded-xl border border-line overflow-hidden">
+          <div className="bg-raised/60 px-4 py-2 text-xs text-faint border-b border-line flex justify-between">
+            <span>方案内容</span>
+            <span>赔率 / 建议投入</span>
+          </div>
+          {plan.entries.map(({ parlay, stake }, i) => {
+            const legs = parlay.legs.map(l => `${l.game.split(" vs ")[0]} · ${l.outcome}`);
+            const stakeRounded = Math.max(1, Math.round(stake));
+            return (
+              <div key={i} className="px-4 py-3 border-b border-line last:border-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-faint">注{i + 1} · {parlay.legs.length}串1</span>
+                    <div className="mt-1 space-y-0.5">
+                      {legs.map((leg, j) => (
+                        <p key={j} className="text-xs text-ink/80">└ {leg}</p>
+                      ))}
+                    </div>
+                    <p className="text-xs text-mut mt-1">
+                      命中率 <span className="font-num tabular-nums text-ink">{pct(parlay.pModel)}</span>
+                      <span className="mx-1.5 text-faint">·</span>
+                      EV <span className={`font-num tabular-nums ${evColor(parlay.ev)}`}>{parlay.ev >= 0 ? "+" : ""}{pct(parlay.ev)}</span>
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-num tabular-nums text-amber font-semibold">{parlay.odds.toFixed(2)}倍</p>
+                    <p className="font-num tabular-nums text-neon font-bold text-lg">{stakeRounded}<span className="text-xs font-normal ml-0.5">元</span></p>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0 font-num tabular-nums text-sm ml-3">
-                <span className="text-amber">{parlay.odds.toFixed(2)}倍</span>
-                <span className="text-neon font-semibold">{stake.toFixed(0)} 元</span>
-              </div>
+            );
+          })}
+          {/* 合计 */}
+          <div className="px-4 py-3 bg-raised/40 flex justify-between items-center">
+            <div>
+              <p className="text-sm font-medium text-ink">合计投入</p>
+              <p className="text-xs text-faint mt-0.5">占本金 {pct(plan.totalStake / bankroll)}</p>
             </div>
-          );
-        })}
-        <div className="flex justify-between text-sm pt-1">
-          <span className="text-mut">合计投入</span>
-          <span className="font-num tabular-nums">
-            <span className="text-ink font-semibold">{plan.totalStake.toFixed(0)} 元</span>
-            <span className="text-faint text-xs ml-1">（占本金 {pct(plan.totalStake / bankroll)}）</span>
-          </span>
+            <div className="text-right">
+              <p className="font-num tabular-nums font-bold text-ink text-xl">{Math.round(plan.totalStake)}<span className="text-sm font-normal ml-1">元</span></p>
+              <p className={`text-xs font-num tabular-nums mt-0.5 ${plan.expProfit >= 0 ? "text-neon" : "text-live"}`}>
+                期望 {plan.expProfit >= 0 ? "+" : ""}{plan.expProfit.toFixed(0)} 元
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-mut">数学期望收益</span>
-          <span className={`font-num tabular-nums ${plan.expProfit >= 0 ? "text-neon" : "text-live"}`}>
-            {plan.expProfit >= 0 ? "+" : ""}{plan.expProfit.toFixed(0)} 元
-          </span>
-        </div>
+
+        <p className="text-xs text-faint">
+          「期望收益」是数学平均值，不是承诺。单次结果可能全额亏损。赔率来源：中国体彩官方竞彩平台。
+        </p>
       </div>
-      <p className="text-xs text-faint border-t border-line pt-3">
-        「期望收益」是数学平均值，不是承诺。单次结果可能全额亏损。
-      </p>
     </div>
   );
 }
@@ -403,9 +427,64 @@ function MatchCard({ a, sortBy, mf, delay }: {
 
 // ── 主组件 ─────────────────────────────────────────────────
 
+// ── 系统过关卡 ─────────────────────────────────────────────
+
+function SystemBetCard({ bets, label }: { bets: EvParlay[]; label: string }) {
+  if (bets.length === 0) return null;
+  const totalOdds = bets.reduce((s, b) => s + b.odds, 0);
+  const totalP = bets.reduce((s, b) => s + b.pModel, 0) / bets.length;
+  return (
+    <div className="card p-5 anim-fade-up">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className="font-semibold text-ink">{label}</span>
+        <span className="chip text-xs bg-raised">{bets.length} 注</span>
+        <span className="text-xs text-faint">每注单独结算，不用全中也能回本</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[360px] text-xs">
+          <thead>
+            <tr className="text-faint border-b border-line">
+              <th className="py-1.5 px-2 text-left">注次</th>
+              <th className="py-1.5 px-2 text-left">内容</th>
+              <th className="py-1.5 px-2 text-right">赔率</th>
+              <th className="py-1.5 px-2 text-right">命中率</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bets.map((b, i) => (
+              <tr key={i} className="border-b border-line last:border-0">
+                <td className="py-2 px-2 text-faint whitespace-nowrap">注{i + 1}</td>
+                <td className="py-2 px-2 text-ink/80">
+                  {b.legs.map((l, j) => (
+                    <span key={j} className="inline-flex items-center gap-1 mr-2">
+                      <span>{l.game.split(" vs ")[0]}</span>
+                      <span className="font-medium text-ink">{l.outcome}</span>
+                    </span>
+                  ))}
+                </td>
+                <td className="py-2 px-2 font-num tabular-nums text-amber text-right">{b.odds.toFixed(2)}</td>
+                <td className="py-2 px-2 font-num tabular-nums text-right">{pct(b.pModel)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex gap-4 mt-3 pt-3 border-t border-line text-xs text-mut">
+        <span>平均赔率 <span className="font-num tabular-nums text-amber">{(totalOdds / bets.length).toFixed(2)}</span></span>
+        <span>平均命中率 <span className="font-num tabular-nums text-ink">{pct(totalP)}</span></span>
+        <span className="text-faint">仅供参考，不构成购彩建议</span>
+      </div>
+    </div>
+  );
+}
+
 export default function ResultView({ matches }: { matches: EvMatch[] }) {
   const result = useMemo(() => analyzeMatches(matches), [matches]);
-  const valueParlays = [...result.parlays2.value, ...result.parlays3.value].slice(0, 5);
+  const valueParlays = [
+    ...result.parlays2.value,
+    ...result.parlays3.value,
+    ...result.parlays4.value,
+  ].slice(0, 6);
 
   const [sortBy, setSortBy] = useState<"value" | "hit">("value");
   const [mf, setMf] = useState<Set<string>>(new Set());
@@ -537,10 +616,21 @@ export default function ResultView({ matches }: { matches: EvMatch[] }) {
         </section>
       )}
 
+      {/* 4串1 */}
+      {result.parlays4.value.length > 0 && (
+        <section>
+          <h2 className="font-semibold text-ink mb-1">④ 4串1（每腿都划算）</h2>
+          <p className="text-xs text-mut mb-3">四场全串，全中赔率相乘，命中率更低但倍数最高。</p>
+          <div className="space-y-2">
+            {result.parlays4.value.slice(0, 3).map((p, i) => <ParlayCard key={i} parlay={p} rank={i + 1} />)}
+          </div>
+        </section>
+      )}
+
       {/* 高命中串 */}
       {result.parlays2.stable.length > 0 && (
         <section>
-          <h2 className="font-semibold text-ink mb-1">④ 高命中串</h2>
+          <h2 className="font-semibold text-ink mb-1">⑤ 高命中串</h2>
           <p className="text-xs text-mut mb-3">优先命中率，相对容易兑现；但常含贴水，长期价值未必为正。</p>
           <div className="space-y-2">
             {result.parlays2.stable.slice(0, 3).map((p, i) => <ParlayCard key={i} parlay={p} rank={i + 1} />)}
@@ -548,7 +638,23 @@ export default function ResultView({ matches }: { matches: EvMatch[] }) {
         </section>
       )}
 
-      {/* 资金计划 */}
+      {/* 系统过关（多串多） */}
+      {result.systemBets.length > 0 && (
+        <section>
+          <h2 className="font-semibold text-ink mb-1">⑥ 系统过关（多串多）</h2>
+          <p className="text-xs text-mut mb-3">自动取多场各自最佳一腿，生成所有组合。<strong className="text-ink">每注独立结算</strong>，不需要全部中。</p>
+          <div className="space-y-3">
+            {result.systemBets.map((bets, i) => {
+              const nLegs = bets[0]?.legs.length ?? 0;
+              const nMatches = Math.max(...bets.map(b => b.legs.length));
+              const label = `${matches.length}场 · ${nLegs}腿组合（${bets.length}注）`;
+              return <SystemBetCard key={i} bets={bets} label={label} />;
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* 资金计划 / 方案单 */}
       {valueParlays.length > 0 && <BankrollPlanner parlays={valueParlays} />}
 
       {/* 免责声明 */}
