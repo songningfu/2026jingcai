@@ -123,7 +123,7 @@ export async function fetchRefOdds(): Promise<Map<string, RefOdds>> {
   const params = new URLSearchParams({
     apiKey,
     regions: "eu",
-    markets: "h2h,asian_handicap,totals",
+    markets: "h2h,totals",
     oddsFormat: "decimal",
     commenceTimeFrom: now.toISOString(),
     commenceTimeTo: soon.toISOString(),
