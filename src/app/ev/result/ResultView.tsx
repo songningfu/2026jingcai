@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { EvMatch, EvPick, EvParlay } from "@/lib/ev-engine";
+import type { EvPick, EvParlay, MatchAnalysis } from "@/lib/ev-engine";
 import { analyzeMatches, EV_VALUE, MAX_SINGLE, KELLY_FRACTION } from "@/lib/ev-engine";
+import type { EvMatch } from "@/lib/ev-engine";
 import { DISCLAIMER } from "@/lib/odds";
 
 // ── 工具 ───────────────────────────────────────────────────
 
 function pct(x: number, d = 1) { return `${(x * 100).toFixed(d)}%`; }
 
-/** 长期价值(EV) 配色 */
 function evColor(ev: number) {
   if (ev >= 0.15) return "text-neon font-semibold";
   if (ev >= 0.05) return "text-neon/70";
@@ -17,14 +17,15 @@ function evColor(ev: number) {
   return "text-mut";
 }
 
-/** 命中率 → 风险等级（串关用，直接回答"这方案稳不稳"） */
 function hitLevel(p: number): { label: string; cls: string; note: string } {
   if (p >= 0.30) return { label: "命中率较高", cls: "bg-neon/10 text-neon", note: "相对容易兑现" };
   if (p >= 0.08) return { label: "中等命中", cls: "bg-amber/10 text-amber", note: "兑现有难度" };
   return { label: "极低命中 · 波动极大", cls: "bg-live/10 text-live", note: "多数情况会落空，类似彩票" };
 }
 
-// ── 资金计划（纯客户端） ───────────────────────────────────
+const MARKET_ORDER = ["胜平负", "让球胜平负", "大小球", "总进球", "比分", "双方进球", "半全场"];
+
+// ── 资金计划 ───────────────────────────────────────────────
 
 function kellyCalc(p: number, o: number) {
   const b = o - 1;
@@ -56,13 +57,136 @@ function HitBar({ p }: { p: number }) {
     <div className="flex items-center gap-1.5 justify-end">
       <span className="font-num tabular-nums text-ink">{pct(p)}</span>
       <span className="hidden sm:block w-10 h-1.5 rounded-full bg-line overflow-hidden">
-        <span className={`block h-full rounded-full ${color}`} style={{ width: `${w}%` }} />
+        <span className={`block h-full rounded-full anim-grow-bar ${color}`} style={{ width: `${w}%` }} />
       </span>
     </div>
   );
 }
 
-// ── 单注表 ─────────────────────────────────────────────────
+// ── 胜平负 / 大小球 可视化 ──────────────────────────────────
+
+function StackBar({ segments }: { segments: { label: string; value: number; cls: string }[] }) {
+  const total = segments.reduce((s, x) => s + x.value, 0) || 1;
+  return (
+    <div>
+      <div className="flex items-center gap-3 text-xs text-mut mb-1 flex-wrap">
+        {segments.map((s, i) => (
+          <span key={i} className="inline-flex items-center gap-1">
+            <span className={`inline-block w-2 h-2 rounded-sm ${s.cls}`} />
+            {s.label} <span className="font-num tabular-nums text-ink">{pct(s.value / total, 0)}</span>
+          </span>
+        ))}
+      </div>
+      <div className="flex w-full h-2.5 rounded-full overflow-hidden bg-line">
+        {segments.map((s, i) => (
+          <span key={i} className={`h-full anim-grow-bar ${s.cls}`} style={{ width: `${(s.value / total) * 100}%` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProbBars({ mp, scores }: { mp: Record<string, Record<string, number>>; scores: number[][] }) {
+  const whl = mp["胜平负"];
+  // 大小球(2.5)从比分矩阵聚合，体彩未单开此盘也能展示模型倾向
+  let over = 0, under = 0, tot = 0;
+  for (let h = 0; h < scores.length; h++)
+    for (let a = 0; a < scores.length; a++) {
+      const p = scores[h][a]; tot += p;
+      if (h + a > 2.5) over += p; else under += p;
+    }
+  const ou = tot > 0 ? { 大: over / tot, 小: under / tot } : null;
+  if (!whl && !ou) return null;
+  return (
+    <div className="grid sm:grid-cols-2 gap-4">
+      {whl && (
+        <div>
+          <p className="text-xs font-medium text-ink mb-1.5">胜平负</p>
+          <StackBar segments={[
+            { label: "主胜", value: whl["胜"] ?? 0, cls: "bg-neon" },
+            { label: "平", value: whl["平"] ?? 0, cls: "bg-faint" },
+            { label: "客胜", value: whl["负"] ?? 0, cls: "bg-amber" },
+          ]} />
+        </div>
+      )}
+      {ou && (
+        <div>
+          <p className="text-xs font-medium text-ink mb-1.5">大小球（2.5 球）</p>
+          <StackBar segments={[
+            { label: "大球", value: ou["大"], cls: "bg-neon" },
+            { label: "小球", value: ou["小"], cls: "bg-amber" },
+          ]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 比分概率热力图 ─────────────────────────────────────────
+
+function ScoreHeatmap({ scores, home, away }: { scores: number[][]; home: string; away: string }) {
+  const size = scores.length;
+  let maxP = 0, topH = 0, topA = 0;
+  for (let h = 0; h < size; h++)
+    for (let a = 0; a < size; a++)
+      if (scores[h][a] > maxP) { maxP = scores[h][a]; topH = h; topA = a; }
+  if (maxP <= 0) return null;
+
+  return (
+    <details className="rounded-xl border border-line bg-surface p-4 group" open>
+      <summary className="flex items-center justify-between cursor-pointer list-none">
+        <span className="text-sm font-medium text-ink">比分概率热力图</span>
+        <span className="text-xs text-faint">
+          最可能 <span className="font-num tabular-nums text-neon">{topH}:{topA}</span>（{pct(maxP)}）
+        </span>
+      </summary>
+
+      <div className="mt-3 overflow-x-auto">
+        <div className="inline-block">
+          {/* 列头：客队进球 */}
+          <div className="flex">
+            <div className="w-8 shrink-0" />
+            <div className="text-[10px] text-faint text-center" style={{ width: `${size * 38}px` }}>
+              {away} 进球 →
+            </div>
+          </div>
+          <div className="flex">
+            <div className="w-8 shrink-0" />
+            {Array.from({ length: size }, (_, a) => (
+              <div key={a} className="w-[38px] text-center text-[11px] font-num tabular-nums text-faint pb-1">{a}</div>
+            ))}
+          </div>
+          {/* 行 */}
+          {scores.map((row, h) => (
+            <div key={h} className="flex items-center">
+              <div className="w-8 shrink-0 text-center text-[11px] font-num tabular-nums text-faint">{h}</div>
+              {row.map((p, a) => {
+                const alpha = Math.min(0.9, (p / maxP) * 0.9);
+                const isTop = h === topH && a === topA;
+                const dark = alpha > 0.45;
+                return (
+                  <div
+                    key={a}
+                    className={`w-[38px] h-[38px] flex items-center justify-center text-[10px] font-num tabular-nums border border-surface ${isTop ? "ring-2 ring-neon ring-inset rounded" : ""}`}
+                    // 数据色：neon rgb(12,157,104) 按概率渐变，属可视化用途
+                    style={{ backgroundColor: `rgba(12, 157, 104, ${alpha})`, color: dark ? "#fff" : "var(--color-mut)" }}
+                    title={`${home} ${h} : ${a} ${away} — ${pct(p)}`}
+                  >
+                    {p >= 0.03 ? (p * 100).toFixed(0) : ""}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div className="w-8 shrink-0 inline-block" />
+          <span className="text-[10px] text-faint ml-9">↑ {home} 进球 · 数字为该比分概率%</span>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+// ── 单注表（接收已排序/筛选的 picks） ───────────────────────
 
 function PickTable({ picks, label, desc, cls }: {
   picks: EvPick[]; label: string; desc: string; cls: string;
@@ -110,7 +234,7 @@ function PickTable({ picks, label, desc, cls }: {
 function ParlayCard({ parlay, rank }: { parlay: EvParlay; rank: number }) {
   const risk = hitLevel(parlay.pModel);
   return (
-    <div className="p-4 rounded-xl border border-line bg-surface">
+    <div className="p-4 rounded-xl border border-line bg-surface anim-fade-up">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-1">
         <span className="text-xs text-faint">方案 {rank}</span>
         <span className="font-num tabular-nums text-amber">{parlay.odds.toFixed(2)}<span className="text-xs">倍</span></span>
@@ -150,7 +274,7 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
   const plan = computePlan(parlays, bankroll);
   if (plan.entries.length === 0) return null;
   return (
-    <div className="card p-5 space-y-4">
+    <div className="card p-5 space-y-4 anim-fade-up">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-ink">投入金额参考</h3>
         <span className="chip text-xs">已自动封顶单注与总投入</span>
@@ -208,7 +332,7 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
   );
 }
 
-// ── 看懂图例（可折叠） ──────────────────────────────────────
+// ── 看懂图例 ───────────────────────────────────────────────
 
 function Legend() {
   return (
@@ -226,6 +350,7 @@ function Legend() {
           <span className="font-medium text-neon">长期价值：</span>赔率相对真实命中率偏高多少。
           <span className="text-neon">正值=划算</span>、负值=贴水亏。但它是「重复很多次的平均」，<span className="text-ink">不保证某一场的结果</span>。
         </p>
+        <p><span className="font-medium text-ink">热力图：</span>颜色越深=该比分越可能。绿框是模型估的最可能比分。</p>
         <p className="pt-1 border-t border-line/60">
           <span className="font-medium text-ink">三档怎么分：</span>
           <span className="text-amber">价值档</span>=赔率偏高、长期划算；
@@ -238,11 +363,67 @@ function Legend() {
   );
 }
 
+// ── 单场分析卡 ─────────────────────────────────────────────
+
+function MatchCard({ a, sortBy, mf, delay }: {
+  a: MatchAnalysis; sortBy: "value" | "hit"; mf: Set<string>; delay: number;
+}) {
+  const view = (picks: EvPick[]) => {
+    let r = mf.size ? picks.filter(p => mf.has(p.market)) : picks;
+    return [...r].sort((x, y) => sortBy === "hit" ? y.pModel - x.pModel : y.ev - x.ev);
+  };
+  const v = view(a.value), s = view(a.stable), l = view(a.longshot);
+  const empty = v.length === 0 && s.length === 0 && l.length === 0;
+
+  return (
+    <div className="card p-5 space-y-5 anim-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <div>
+        <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
+        <p className="text-xs text-mut mt-0.5">
+          模型预期进球 <span className="font-num tabular-nums text-ink">{a.match.home} {a.lamH.toFixed(1)}</span>
+          <span className="text-faint"> - </span>
+          <span className="font-num tabular-nums text-ink">{a.lamA.toFixed(1)} {a.match.away}</span>
+        </p>
+      </div>
+
+      <ProbBars mp={a.mp} scores={a.scores} />
+      <ScoreHeatmap scores={a.scores} home={a.match.home} away={a.match.away} />
+
+      {empty
+        ? <p className="text-sm text-faint">{mf.size ? "所选玩法下本场无符合条件的点。" : "本场没找到明显划算的点（各玩法赔率都接近或低于估算的真实水平）。"}</p>
+        : <>
+            <PickTable label="价值档" desc="赔率偏高，长期划算的点" picks={v} cls="bg-amber/10 text-amber" />
+            <PickTable label="稳健档" desc="命中率高，但常含贴水，不等于划算" picks={s} cls="bg-neon/10 text-neon" />
+            <PickTable label="博胆档" desc="高赔冷门，押中难、波动大" picks={l} cls="bg-live/10 text-live" />
+          </>
+      }
+    </div>
+  );
+}
+
 // ── 主组件 ─────────────────────────────────────────────────
 
 export default function ResultView({ matches }: { matches: EvMatch[] }) {
   const result = useMemo(() => analyzeMatches(matches), [matches]);
   const valueParlays = [...result.parlays2.value, ...result.parlays3.value].slice(0, 5);
+
+  const [sortBy, setSortBy] = useState<"value" | "hit">("value");
+  const [mf, setMf] = useState<Set<string>>(new Set());
+
+  // 出现过的玩法（按固定顺序）
+  const allMarkets = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of result.analyses)
+      for (const p of a.picks) set.add(p.market);
+    return MARKET_ORDER.filter(m => set.has(m));
+  }, [result]);
+
+  const toggleMarket = (m: string) =>
+    setMf(prev => {
+      const next = new Set(prev);
+      next.has(m) ? next.delete(m) : next.add(m);
+      return next;
+    });
 
   return (
     <div className="space-y-6">
@@ -250,7 +431,7 @@ export default function ResultView({ matches }: { matches: EvMatch[] }) {
       <Legend />
 
       {/* 速览表 */}
-      <section className="card p-5">
+      <section className="card p-5 anim-fade-up">
         <h2 className="font-semibold text-ink mb-1">① 各场速览</h2>
         <p className="text-xs text-mut mb-3">先看哪场有「划算的点」，再往下看细节。</p>
         <div className="overflow-x-auto">
@@ -293,26 +474,42 @@ export default function ResultView({ matches }: { matches: EvMatch[] }) {
         <p className="text-xs text-faint mt-2">「预期比分」是模型估的进球数，非预测结果。「划算点」=该场长期价值为正的选项数量。</p>
       </section>
 
-      {/* 各场三档分析 */}
+      {/* 每场详细分析 + 控制栏 */}
       <section className="space-y-4">
-        <h2 className="font-semibold text-ink">② 每场详细分析</h2>
-        {result.analyses.map(a => (
-          <div key={a.match.matchId} className="card p-5 space-y-5">
-            <div>
-              <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
-              <p className="text-xs text-mut mt-0.5">
-                模型预期进球 <span className="font-num tabular-nums text-ink">{a.match.home} {a.lamH.toFixed(1)}</span>
-                <span className="text-faint"> - </span>
-                <span className="font-num tabular-nums text-ink">{a.lamA.toFixed(1)} {a.match.away}</span>
-              </p>
-            </div>
-            {a.value.length === 0 && a.stable.length === 0 && a.longshot.length === 0 && (
-              <p className="text-sm text-faint">本场没找到明显划算的点（各玩法赔率都接近或低于估算的真实水平）。</p>
-            )}
-            <PickTable label="价值档" desc="赔率偏高，长期划算的点" picks={a.value} cls="bg-amber/10 text-amber" />
-            <PickTable label="稳健档" desc="命中率高，但常含贴水，不等于划算" picks={a.stable} cls="bg-neon/10 text-neon" />
-            <PickTable label="博胆档" desc="高赔冷门，押中难、波动大" picks={a.longshot} cls="bg-live/10 text-live" />
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="font-semibold text-ink">② 每场详细分析</h2>
+          <div className="inline-flex rounded-full border border-line overflow-hidden text-xs">
+            <button
+              onClick={() => setSortBy("value")}
+              className={`px-3 py-1.5 transition ${sortBy === "value" ? "bg-neon text-white" : "text-mut hover:bg-raised/40"}`}
+            >按价值</button>
+            <button
+              onClick={() => setSortBy("hit")}
+              className={`px-3 py-1.5 transition ${sortBy === "hit" ? "bg-neon text-white" : "text-mut hover:bg-raised/40"}`}
+            >按命中率</button>
           </div>
+        </div>
+
+        {/* 玩法筛选 */}
+        {allMarkets.length > 1 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-faint mr-1">玩法：</span>
+            <button
+              onClick={() => setMf(new Set())}
+              className={`chip text-xs transition ${mf.size === 0 ? "bg-neon/10 text-neon" : "hover:bg-raised"}`}
+            >全部</button>
+            {allMarkets.map(m => (
+              <button
+                key={m}
+                onClick={() => toggleMarket(m)}
+                className={`chip text-xs transition ${mf.has(m) ? "bg-neon/10 text-neon" : "hover:bg-raised"}`}
+              >{m}</button>
+            ))}
+          </div>
+        )}
+
+        {result.analyses.map((a, i) => (
+          <MatchCard key={a.match.matchId} a={a} sortBy={sortBy} mf={mf} delay={i * 60} />
         ))}
       </section>
 

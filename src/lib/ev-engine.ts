@@ -73,6 +73,10 @@ export interface MatchAnalysis {
   stable: EvPick[];
   value: EvPick[];
   longshot: EvPick[];
+  /** 全玩法模型概率（胜平负/大小球等可视化用） */
+  mp: Record<string, Record<string, number>>;
+  /** 比分概率矩阵 scores[主进球][客进球]（热力图用） */
+  scores: number[][];
 }
 
 export interface EVResult {
@@ -355,6 +359,18 @@ export function modelProbs(
   return out;
 }
 
+/** 比分概率矩阵 out[主进球][客进球]=P(该比分)，size 球以内，供热力图展示 */
+export function scoreMatrix(lamH: number, lamA: number, size = 6): number[][] {
+  const g = scoreGrid(lamH, lamA);
+  const out: number[][] = [];
+  for (let h = 0; h < size; h++) {
+    const row: number[] = [];
+    for (let a = 0; a < size; a++) row.push(g[h * MAXG + a]);
+    out.push(row);
+  }
+  return out;
+}
+
 // ── 推荐器 ─────────────────────────────────────────────────
 
 export function buildPicks(
@@ -492,7 +508,8 @@ export function analyzeMatches(matches: EvMatch[]): EVResult {
     const mp = modelProbs(match, lamH, lamA);
     const picks = buildPicks(match, mp);
     const { stable, value, longshot } = classify(picks);
-    analyses.push({ match, lamH, lamA, calibSource: source, picks, stable, value, longshot });
+    const scores = scoreMatrix(lamH, lamA, 6);
+    analyses.push({ match, lamH, lamA, calibSource: source, picks, stable, value, longshot, mp, scores });
   }
 
   const parlays2 = classifyParlays(enumerateParlays(matches, 2));
