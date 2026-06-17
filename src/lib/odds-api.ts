@@ -120,13 +120,15 @@ export async function fetchRefOdds(): Promise<Map<string, RefOdds>> {
   const sportKey = process.env.ODDS_API_SPORT_KEY ?? "soccer_fifa_world_cup";
   const now = new Date();
   const soon = new Date(now.getTime() + 5 * 24 * 3600_000);
+  // The Odds API 只接受 YYYY-MM-DDTHH:MM:SSZ（不带毫秒），需剥掉 .000
+  const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
   const params = new URLSearchParams({
     apiKey,
     regions: "eu",
-    markets: "h2h,totals",
+    markets: "h2h,spreads,totals",
     oddsFormat: "decimal",
-    commenceTimeFrom: now.toISOString(),
-    commenceTimeTo: soon.toISOString(),
+    commenceTimeFrom: iso(now),
+    commenceTimeTo: iso(soon),
   });
 
   let raw: ApiMatch[];
@@ -159,7 +161,8 @@ export async function fetchRefOdds(): Promise<Map<string, RefOdds>> {
     const h2hM = bestMarket(match.bookmakers, "h2h");
     if (h2hM) ref.h2h = parseH2H(h2hM, homeEn, awayEn);
 
-    const ahM = bestMarket(match.bookmakers, "asian_handicap");
+    // 足球的 spreads 即让球盘（半球/整数线），免费层可用，等价于亚盘标定信号
+    const ahM = bestMarket(match.bookmakers, "spreads");
     if (ahM) ref.asianHandicap = parseAH(ahM, homeEn, awayEn);
 
     const totM = bestMarket(match.bookmakers, "totals");
