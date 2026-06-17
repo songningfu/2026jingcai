@@ -18,7 +18,7 @@ export default async function EVPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-ink">EV 分析</h1>
         <p className="text-sm text-mut mt-1">
-          选择场次 · 自动接入锐盘参考赔率 · 期望值测算 + 三档分级 + 串关推荐
+          选你关心的比赛 · 模型估算每个玩法的真实命中率 · 找出体彩赔率给得划算的点
         </p>
       </div>
       <EVClient matches={matches} />

@@ -9,11 +9,19 @@ import { DISCLAIMER } from "@/lib/odds";
 
 function pct(x: number, d = 1) { return `${(x * 100).toFixed(d)}%`; }
 
+/** 长期价值(EV) 配色 */
 function evColor(ev: number) {
   if (ev >= 0.15) return "text-neon font-semibold";
   if (ev >= 0.05) return "text-neon/70";
   if (ev <= -0.1) return "text-live";
   return "text-mut";
+}
+
+/** 命中率 → 风险等级（串关用，直接回答"这方案稳不稳"） */
+function hitLevel(p: number): { label: string; cls: string; note: string } {
+  if (p >= 0.30) return { label: "命中率较高", cls: "bg-neon/10 text-neon", note: "相对容易兑现" };
+  if (p >= 0.08) return { label: "中等命中", cls: "bg-amber/10 text-amber", note: "兑现有难度" };
+  return { label: "极低命中 · 波动极大", cls: "bg-live/10 text-live", note: "多数情况会落空，类似彩票" };
 }
 
 // ── 资金计划（纯客户端，无需引擎） ─────────────────────────
@@ -39,7 +47,22 @@ function computePlan(parlays: EvParlay[], bankroll: number) {
   };
 }
 
-// ── 子组件 ─────────────────────────────────────────────────
+// ── 小组件：命中率进度条 ────────────────────────────────────
+
+function HitBar({ p }: { p: number }) {
+  const w = Math.min(100, p * 100);
+  const color = p >= 0.5 ? "bg-neon" : p >= 0.2 ? "bg-amber" : "bg-faint";
+  return (
+    <div className="flex items-center gap-1.5 justify-end">
+      <span className="font-num tabular-nums text-ink">{pct(p)}</span>
+      <span className="hidden sm:block w-10 h-1.5 rounded-full bg-line overflow-hidden">
+        <span className={`block h-full rounded-full ${color}`} style={{ width: `${w}%` }} />
+      </span>
+    </div>
+  );
+}
+
+// ── 子组件：单注表 ──────────────────────────────────────────
 
 function PickTable({ picks, label, desc, cls }: {
   picks: EvPick[]; label: string; desc: string; cls: string;
@@ -47,35 +70,30 @@ function PickTable({ picks, label, desc, cls }: {
   if (picks.length === 0) return null;
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className={`chip ${cls}`}>{label}</span>
         <span className="text-xs text-mut">{desc}</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-sm">
+        <table className="w-full min-w-[380px] text-sm">
           <thead>
             <tr className="text-xs text-faint border-b border-line">
-              <th className="py-1.5 px-2 text-left">玩法</th>
-              <th className="py-1.5 px-2 text-left">选项</th>
-              <th className="py-1.5 px-2 text-right">赔率</th>
-              <th className="py-1.5 px-2 text-right">模型概率</th>
-              <th className="py-1.5 px-2 text-right">隐含概率</th>
-              <th className="py-1.5 px-2 text-right">优势</th>
-              <th className="py-1.5 px-2 text-right">EV</th>
+              <th className="py-1.5 px-2 text-left">玩法 · 选项</th>
+              <th className="py-1.5 px-2 text-right">体彩赔率</th>
+              <th className="py-1.5 px-2 text-right">估算命中率</th>
+              <th className="py-1.5 px-2 text-right">长期价值</th>
             </tr>
           </thead>
           <tbody>
             {picks.slice(0, 8).map((p, i) => (
               <tr key={i} className="border-b border-line last:border-0 hover:bg-raised/40 transition">
-                <td className="py-2 px-2 text-xs text-mut">{p.market}</td>
-                <td className="py-2 px-2 font-medium text-ink">{p.outcome}</td>
-                <td className="py-2 px-2 font-num text-amber text-right">{p.odds.toFixed(2)}</td>
-                <td className="py-2 px-2 font-num text-right">{pct(p.pModel)}</td>
-                <td className="py-2 px-2 font-num text-right text-mut">{pct(p.pImplied)}</td>
-                <td className={`py-2 px-2 font-num text-right ${p.edge >= 0 ? "text-neon/80" : "text-live/70"}`}>
-                  {p.edge >= 0 ? "+" : ""}{pct(p.edge)}
+                <td className="py-2.5 px-2">
+                  <span className="font-medium text-ink">{p.outcome}</span>
+                  <span className="text-xs text-faint ml-1.5">{p.market}</span>
                 </td>
-                <td className={`py-2 px-2 font-num text-right ${evColor(p.ev)}`}>
+                <td className="py-2.5 px-2 font-num tabular-nums text-amber text-right">{p.odds.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right"><HitBar p={p.pModel} /></td>
+                <td className={`py-2.5 px-2 font-num tabular-nums text-right ${evColor(p.ev)}`}>
                   {p.ev >= 0 ? "+" : ""}{pct(p.ev)}
                 </td>
               </tr>
@@ -87,33 +105,48 @@ function PickTable({ picks, label, desc, cls }: {
   );
 }
 
+// ── 子组件：串关卡 ──────────────────────────────────────────
+
 function ParlayCard({ parlay, rank }: { parlay: EvParlay; rank: number }) {
+  const risk = hitLevel(parlay.pModel);
   return (
-    <div className="p-3 rounded-xl border border-line bg-surface">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2">
-        <span className="text-xs text-mut">#{rank}</span>
-        <span className="font-num text-amber text-sm">{parlay.odds.toFixed(2)}x</span>
-        <span className="font-num text-sm text-mut">{pct(parlay.pModel)} 命中</span>
-        <span className={`font-num text-sm ${evColor(parlay.ev)}`}>
-          EV {parlay.ev >= 0 ? "+" : ""}{pct(parlay.ev)}
+    <div className="p-4 rounded-xl border border-line bg-surface">
+      {/* 汇总行 */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-1">
+        <span className="text-xs text-faint">方案 {rank}</span>
+        <span className="font-num tabular-nums text-amber">{parlay.odds.toFixed(2)}<span className="text-xs">倍</span></span>
+        <span className="text-sm text-mut">
+          命中率 <span className="font-num tabular-nums text-ink">{pct(parlay.pModel)}</span>
         </span>
-        {parlay.allPositive && <span className="chip bg-neon/10 text-neon text-xs">全腿+EV</span>}
+        <span className={`text-sm ${evColor(parlay.ev)}`}>
+          长期价值 <span className="font-num tabular-nums">{parlay.ev >= 0 ? "+" : ""}{pct(parlay.ev)}</span>
+        </span>
       </div>
-      <div className="space-y-1 pl-1">
+      {/* 风险徽章 + 一句话 */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className={`chip text-xs ${risk.cls}`}>{risk.label}</span>
+        <span className="text-xs text-faint">{risk.note}</span>
+      </div>
+      {/* 各腿 */}
+      <div className="space-y-1.5 pl-1 border-t border-line pt-2.5">
         {parlay.legs.map((leg, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-mut">
+          <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             <span className="text-faint">└</span>
             <span className="text-ink/80">{leg.game}</span>
-            <span>{leg.market}</span>
+            <span className="text-mut">{leg.market}</span>
             <span className="font-medium text-ink">{leg.outcome}</span>
-            <span className="font-num text-amber">@{leg.odds.toFixed(2)}</span>
-            <span className={`font-num ${evColor(leg.ev)}`}>{leg.ev >= 0 ? "+" : ""}{pct(leg.ev)}</span>
+            <span className="font-num tabular-nums text-amber">{leg.odds.toFixed(2)}倍</span>
+            <span className={`font-num tabular-nums ${evColor(leg.ev)}`}>
+              {leg.ev >= 0 ? "+" : ""}{pct(leg.ev)}
+            </span>
           </div>
         ))}
       </div>
     </div>
   );
 }
+
+// ── 子组件：资金计划 ────────────────────────────────────────
 
 function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
   const [bankroll, setBankroll] = useState(1000);
@@ -122,15 +155,18 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
   return (
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-ink">资金分配参考</h3>
-        <span className="chip">半凯利 · 敞口≤20%</span>
+        <h3 className="font-semibold text-ink">投入金额参考</h3>
+        <span className="chip text-xs">已自动封顶单注与总投入</span>
       </div>
+      <p className="text-xs text-mut">
+        下面金额按数学风控自动算出：单笔最多本金 {(MAX_SINGLE * 100).toFixed(0)}%，全部加起来不超过 20%。仅为参考，非购彩建议。
+      </p>
       <div className="flex items-center gap-3">
         <label className="text-sm text-mut shrink-0">本金（元）</label>
         <input
           type="number" min={100} max={100000} step={100} value={bankroll}
           onChange={e => setBankroll(Math.max(100, Number(e.target.value)))}
-          className="border border-line rounded-lg px-3 py-1.5 text-sm font-num w-28 bg-surface focus:outline-none focus:border-neon"
+          className="border border-line rounded-lg px-3 py-1.5 text-sm font-num tabular-nums w-28 bg-surface focus:outline-none focus:border-neon"
         />
         <input
           type="range" min={100} max={10000} step={100} value={Math.min(bankroll, 10000)}
@@ -147,32 +183,61 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
                 <span className="text-xs text-mut">注{i + 1}：</span>
                 <span className="text-xs text-ink/80 truncate">{legs}</span>
               </div>
-              <div className="flex items-center gap-3 shrink-0 font-num text-sm ml-3">
-                <span className="text-amber">{parlay.odds.toFixed(2)}x</span>
-                <span className={evColor(parlay.ev)}>EV {parlay.ev >= 0 ? "+" : ""}{pct(parlay.ev)}</span>
+              <div className="flex items-center gap-3 shrink-0 font-num tabular-nums text-sm ml-3">
+                <span className="text-amber">{parlay.odds.toFixed(2)}倍</span>
                 <span className="text-neon font-semibold">{stake.toFixed(0)} 元</span>
               </div>
             </div>
           );
         })}
         <div className="flex justify-between text-sm pt-1">
-          <span className="text-mut">合计 / 最大回撤</span>
-          <span className="font-num">
+          <span className="text-mut">合计投入</span>
+          <span className="font-num tabular-nums">
             <span className="text-ink font-semibold">{plan.totalStake.toFixed(0)} 元</span>
             <span className="text-faint text-xs ml-1">（占本金 {pct(plan.totalStake / bankroll)}）</span>
           </span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-mut">期望盈利</span>
-          <span className={`font-num ${plan.expProfit >= 0 ? "text-neon" : "text-live"}`}>
+          <span className="text-mut">数学期望收益</span>
+          <span className={`font-num tabular-nums ${plan.expProfit >= 0 ? "text-neon" : "text-live"}`}>
             {plan.expProfit >= 0 ? "+" : ""}{plan.expProfit.toFixed(0)} 元
           </span>
         </div>
       </div>
       <p className="text-xs text-faint border-t border-line pt-3">
-        半凯利 × 单注上限{(MAX_SINGLE * 100).toFixed(0)}%，总敞口≤20%。金额为数学参考，不构成购彩建议。
+        「期望收益」是数学平均值，不是承诺。单次结果可能全额亏损。
       </p>
     </div>
+  );
+}
+
+// ── 看懂图例（可折叠） ──────────────────────────────────────
+
+function Legend() {
+  return (
+    <details className="card p-4 group">
+      <summary className="flex items-center justify-between cursor-pointer list-none">
+        <span className="font-medium text-ink text-sm">📖 怎么看懂这一页（点开）</span>
+        <span className="text-xs text-faint group-open:hidden">展开</span>
+        <span className="text-xs text-faint hidden group-open:inline">收起</span>
+      </summary>
+      <div className="mt-3 pt-3 border-t border-line space-y-2.5 text-xs text-mut leading-relaxed">
+        <p><span className="font-medium text-ink">这页在干嘛：</span>用数学模型估算每个玩法的「真实命中率」，再和体彩开出的赔率比——赔率给得比真实水平高的地方，长期看就划算。</p>
+        <p><span className="font-medium text-amber">体彩赔率：</span>中国体彩官方开出的赔率，猜中按它翻倍。</p>
+        <p><span className="font-medium text-ink">估算命中率：</span>模型算出来的真实发生概率。注意只是估算，不是事实。</p>
+        <p>
+          <span className="font-medium text-neon">长期价值：</span>赔率相对真实命中率偏高多少。
+          <span className="text-neon">正值=划算</span>、负值=贴水亏。但它是「重复很多次的平均」，<span className="text-ink">不保证某一场的结果</span>。
+        </p>
+        <p className="pt-1 border-t border-line/60">
+          <span className="font-medium text-ink">三档怎么分：</span>
+          <span className="text-amber">价值档</span>=赔率偏高、长期划算；
+          <span className="text-neon">稳健档</span>=命中率高但常含贴水；
+          <span className="text-live">博胆档</span>=高赔冷门、押中难、波动大。
+        </p>
+        <p className="text-faint">⚠️ 长期价值高 ≠ 容易中。高价值常常伴随极低命中率（类似彩票），看的时候两个一起看。</p>
+      </div>
+    </details>
   );
 }
 
@@ -226,18 +291,12 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
   return (
     <div className="space-y-6">
 
-      {/* 说明条 */}
-      <div className="rounded-xl bg-raised/60 border border-line p-4 text-xs text-mut leading-relaxed">
-        <strong className="text-ink">工作原理：</strong>
-        从亚盘（The Odds API · Pinnacle 锐盘）+ 大小球反解两队期望进球 λ（优先级：亚盘×3 &gt; 大小球×2 &gt; 胜平负×1），
-        再用同一套泊松-DC 模型评估体彩赔率——体彩赔率高于模型价值的地方就是 +EV。
-        <span className="block mt-0.5 text-faint">无参考盘时自动退回体彩盘自评（标注「体彩盘」）。</span>
-      </div>
+      <Legend />
 
       {/* 选场 + 运行 */}
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-ink">选择分析场次</h2>
+          <h2 className="font-semibold text-ink">① 选择要分析的比赛</h2>
           <button onClick={toggleAll} className="text-xs text-neon hover:text-neon-dim underline underline-offset-2">
             {selected.size === matches.length ? "取消全选" : "全选"}
           </button>
@@ -267,8 +326,8 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-ink text-sm">{m.home} vs {m.away}</span>
                     {hasRef
-                      ? <span className="chip bg-neon/10 text-neon text-xs">亚盘参考</span>
-                      : <span className="chip text-xs text-faint">体彩自评</span>
+                      ? <span className="chip bg-neon/10 text-neon text-xs" title="已用更专业的参考赔率校准模型">精校</span>
+                      : <span className="chip text-xs text-faint" title="无参考赔率，仅用体彩自身赔率估算">自评</span>
                     }
                   </div>
                   <span className="text-xs text-faint">
@@ -281,7 +340,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
         </div>
 
         <div className="flex items-center justify-between mt-5 pt-4 border-t border-line">
-          <span className="text-sm text-mut">已选 <span className="font-num text-ink">{selected.size}</span> 场</span>
+          <span className="text-sm text-mut">已选 <span className="font-num tabular-nums text-ink">{selected.size}</span> 场</span>
           <button
             onClick={runAnalysis}
             disabled={selected.size === 0 || loading}
@@ -291,7 +350,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
                 : "bg-neon text-white hover:bg-neon-dim active:scale-95"
             }`}
           >
-            {loading ? "计算中…" : "运行分析"}
+            {loading ? "计算中…" : "开始分析"}
           </button>
         </div>
       </section>
@@ -300,7 +359,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
       {loading && (
         <div className="card p-8 text-center">
           <div className="inline-block w-6 h-6 border-2 border-neon border-t-transparent rounded-full anim-spin mb-3" />
-          <p className="text-sm text-mut">标定 λ · 推导模型概率…</p>
+          <p className="text-sm text-mut">正在估算命中率与价值…</p>
         </div>
       )}
 
@@ -310,35 +369,38 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
 
           {/* 速览表 */}
           <section className="card p-5">
-            <h2 className="font-semibold text-ink mb-3">场次速览</h2>
+            <h2 className="font-semibold text-ink mb-1">② 各场速览</h2>
+            <p className="text-xs text-mut mb-3">先看哪场有「划算的点」，再往下看细节。</p>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-sm">
+              <table className="w-full min-w-[420px] text-sm">
                 <thead>
                   <tr className="text-xs text-faint border-b border-line">
                     <th className="py-2 px-2 text-left">对阵</th>
-                    <th className="py-2 px-2 text-left">λ主 / λ客</th>
-                    <th className="py-2 px-2 text-left">标定源</th>
-                    <th className="py-2 px-2 text-left">最优单注</th>
-                    <th className="py-2 px-2 text-right">EV</th>
+                    <th className="py-2 px-2 text-center">预期比分</th>
+                    <th className="py-2 px-2 text-center">划算点</th>
+                    <th className="py-2 px-2 text-right">最划算选项</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.analyses.map(a => {
-                    const best = a.picks.length ? a.picks.reduce((b, p) => p.ev > b.ev ? p : b) : null;
+                    const best = a.value.length ? a.value[0] : null;
                     return (
                       <tr key={a.match.matchId} className="border-b border-line last:border-0 hover:bg-raised/40 transition">
                         <td className="py-2.5 px-2 font-medium text-ink">{a.match.home} vs {a.match.away}</td>
-                        <td className="py-2.5 px-2 font-num text-xs text-mut">{a.lamH.toFixed(2)} / {a.lamA.toFixed(2)}</td>
-                        <td className="py-2.5 px-2">
-                          <span className={`chip text-xs ${a.calibSource === "参考盘" ? "bg-neon/10 text-neon" : ""}`}>
-                            {a.calibSource}
-                          </span>
+                        <td className="py-2.5 px-2 font-num tabular-nums text-xs text-mut text-center">
+                          {a.lamH.toFixed(1)} : {a.lamA.toFixed(1)}
                         </td>
-                        <td className="py-2.5 px-2 text-xs text-mut">
-                          {best ? `${best.market}/${best.outcome} @${best.odds.toFixed(2)}` : "—"}
+                        <td className="py-2.5 px-2 text-center">
+                          {a.value.length > 0
+                            ? <span className="font-num tabular-nums text-amber font-semibold">{a.value.length}</span>
+                            : <span className="text-faint">无</span>}
                         </td>
-                        <td className={`py-2.5 px-2 font-num text-sm text-right ${best ? evColor(best.ev) : "text-faint"}`}>
-                          {best ? `${best.ev >= 0 ? "+" : ""}${pct(best.ev)}` : "—"}
+                        <td className="py-2.5 px-2 text-xs text-right">
+                          {best
+                            ? <span><span className="text-ink font-medium">{best.outcome}</span>
+                                <span className="text-faint ml-1">{best.market}</span>
+                                <span className={`font-num tabular-nums ml-1.5 ${evColor(best.ev)}`}>+{pct(best.ev)}</span></span>
+                            : <span className="text-faint">—</span>}
                         </td>
                       </tr>
                     );
@@ -346,37 +408,40 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
                 </tbody>
               </table>
             </div>
+            <p className="text-xs text-faint mt-2">「预期比分」是模型估的进球数，非预测结果。「划算点」=该场长期价值为正的选项数量。</p>
           </section>
 
           {/* 各场三档分析 */}
-          {result.analyses.map(a => (
-            <section key={a.match.matchId} className="card p-5 space-y-5">
-              <div>
-                <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
-                <p className="text-xs text-mut mt-0.5">
-                  λ主 <span className="font-num text-ink">{a.lamH.toFixed(2)}</span>
-                  {" · "}λ客 <span className="font-num text-ink">{a.lamA.toFixed(2)}</span>
-                  {" · "}预期总进球 <span className="font-num text-amber">{(a.lamH + a.lamA).toFixed(2)}</span>
-                  {" · "}标定源：{a.calibSource}
-                </p>
+          <section className="space-y-4">
+            <h2 className="font-semibold text-ink">③ 每场详细分析</h2>
+            {result.analyses.map(a => (
+              <div key={a.match.matchId} className="card p-5 space-y-5">
+                <div>
+                  <h3 className="font-semibold text-ink">{a.match.home} vs {a.match.away}</h3>
+                  <p className="text-xs text-mut mt-0.5">
+                    模型预期进球 <span className="font-num tabular-nums text-ink">{a.match.home} {a.lamH.toFixed(1)}</span>
+                    <span className="text-faint"> - </span>
+                    <span className="font-num tabular-nums text-ink">{a.lamA.toFixed(1)} {a.match.away}</span>
+                  </p>
+                </div>
+                {a.value.length === 0 && a.stable.length === 0 && a.longshot.length === 0 && (
+                  <p className="text-sm text-faint">本场没找到明显划算的点（各玩法赔率都接近或低于估算的真实水平）。</p>
+                )}
+                <PickTable label="价值档" desc="赔率偏高，长期划算的点" picks={a.value} cls="bg-amber/10 text-amber" />
+                <PickTable label="稳健档" desc="命中率高，但常含贴水，不等于划算" picks={a.stable} cls="bg-neon/10 text-neon" />
+                <PickTable label="博胆档" desc="高赔冷门，押中难、波动大" picks={a.longshot} cls="bg-live/10 text-live" />
               </div>
-              {a.value.length === 0 && a.stable.length === 0 && a.longshot.length === 0 && (
-                <p className="text-sm text-faint">本场无显著偏差点（各玩法 EV 均为负或不显著）</p>
-              )}
-              <PickTable label="价值档" desc="EV ≥ 10%，正期望 · 主推" picks={a.value} cls="bg-amber/10 text-amber" />
-              <PickTable label="稳健档" desc="命中率 ≥ 58%，不等于正期望" picks={a.stable} cls="bg-neon/10 text-neon" />
-              <PickTable label="博胆档" desc="冷门赔率 ≥ 5，正期望高方差" picks={a.longshot} cls="bg-live/10 text-live" />
-            </section>
-          ))}
+            ))}
+          </section>
 
           {/* 价值串关 */}
           {(result.parlays2.value.length > 0 || result.parlays3.value.length > 0) && (
             <section>
-              <h2 className="font-semibold text-ink mb-1">价值串关（全腿 +EV）</h2>
-              <p className="text-xs text-mut mb-3">每腿均正期望，串关复利放大优势。混入负 EV 腿贴水被复利吃掉。</p>
+              <h2 className="font-semibold text-ink mb-1">④ 价值串关（每腿都划算）</h2>
+              <p className="text-xs text-mut mb-3">把多场「划算的点」串在一起，全中才算赢。串得越多赔率越高，但命中率越低——务必看每张卡的风险徽章。</p>
               {result.parlays2.value.length > 0 && (
                 <div className="mb-4">
-                  <p className="text-sm text-mut mb-2">2 串 1</p>
+                  <p className="text-sm text-mut mb-2">两场串一起</p>
                   <div className="space-y-2">
                     {result.parlays2.value.map((p, i) => <ParlayCard key={i} parlay={p} rank={i + 1} />)}
                   </div>
@@ -384,7 +449,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
               )}
               {result.parlays3.value.length > 0 && (
                 <div>
-                  <p className="text-sm text-mut mb-2">3 串 1</p>
+                  <p className="text-sm text-mut mb-2">三场串一起</p>
                   <div className="space-y-2">
                     {result.parlays3.value.map((p, i) => <ParlayCard key={i} parlay={p} rank={i + 1} />)}
                   </div>
@@ -396,8 +461,8 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
           {/* 稳健串 */}
           {result.parlays2.stable.length > 0 && (
             <section>
-              <h2 className="font-semibold text-ink mb-1">稳健串（命中率优先）</h2>
-              <p className="text-xs text-mut mb-3">高命中率优先，注意常含贴水，EV 未必为正。</p>
+              <h2 className="font-semibold text-ink mb-1">⑤ 高命中串</h2>
+              <p className="text-xs text-mut mb-3">优先命中率，相对容易兑现；但常含贴水，长期价值未必为正。</p>
               <div className="space-y-2">
                 {result.parlays2.stable.slice(0, 3).map((p, i) => <ParlayCard key={i} parlay={p} rank={i + 1} />)}
               </div>
@@ -412,8 +477,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
             <p className="font-medium text-mut mb-1">分析声明</p>
             <p>{DISCLAIMER}</p>
             <p className="mt-1">
-              参考盘赔率仅用于引擎内部标定，不展示给用户、不作为投注依据。
-              EV 测算基于模型假设，结果取决于赔率质量。本页所有输出<strong>不构成任何投注建议</strong>。
+              所有数字基于模型假设的数学测算，命中率与价值均为估算、非事实，<strong>不构成任何投注建议，也不承诺任何收益</strong>。
             </p>
           </div>
         </div>
