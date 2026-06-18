@@ -13,7 +13,8 @@ const FIRST_HALF_RATIO = 0.45;
 
 const P_STABLE = 0.58;
 const EV_STABLE = -0.05;
-export const EV_VALUE = 0.10;
+// 向市场收缩后 EV 量级整体下降，4% 才是收缩后真实可信的价值边际（收缩前等价于约 10%）
+export const EV_VALUE = 0.04;
 const ODDS_LONGSHOT = 5.0;
 export const MAX_SINGLE = 0.02;
 export const KELLY_FRACTION = 0.5;
@@ -21,6 +22,12 @@ const NO_KELLY_ODDS = 8.0;
 const LONGSHOT_FLAT = 0.005;
 
 const W_AH = 3.0, W_OU = 2.0, W_1X2 = 1.0;
+
+// 向市场收缩权重：pUsed = w·模型 + (1−w)·体彩去水位概率。
+// 有 sharp 参考盘（亚盘/锐盘）时模型误差低，轻收缩保住"体彩 vs 锐盘"偏差信号；
+// 仅体彩自评时模型≈体彩自身，任何"优势"都是噪声，向市场重收缩压掉。
+export const SHRINK_REF = 0.80;
+export const SHRINK_SELF = 0.35;
 
 const POOL_TOP_EV = 4;
 const POOL_TOP_P = 2;
@@ -142,6 +149,37 @@ export function devig(odds: Record<string, number>): Record<string, number> {
   return probs;
 }
 
+/**
+ * Shin (1993) 去水位：相对等比例去水位，修正「热门-冷门偏差」——
+ * 市场对冷门定价偏高、对热门定价偏低的系统性偏差，故 Shin 抬高热门真概率、压低冷门。
+ * 比 devig() 更接近真实概率。解 z（内幕资金比例）使 Σp=1；z=0 时 Σp=√B>1，z 增大 Σp 单调减小。
+ */
+export function devigShin(odds: Record<string, number>): Record<string, number> {
+  const keys = Object.keys(odds).filter(
+    (k) => k !== "line" && typeof odds[k] === "number" && odds[k] > 1,
+  );
+  if (keys.length < 2) return {};
+  const q = keys.map((k) => 1 / odds[k]);
+  const B = q.reduce((s, x) => s + x, 0); // 含水位总隐含概率
+  if (B <= 1) {
+    const out: Record<string, number> = {};
+    keys.forEach((k, i) => (out[k] = q[i] / B));
+    return out;
+  }
+  const pi = (z: number, qi: number) =>
+    (Math.sqrt(z * z + 4 * (1 - z) * (qi * qi) / B) - z) / (2 * (1 - z));
+  const sumP = (z: number) => q.reduce((s, qi) => s + pi(z, qi), 0);
+  let lo = 0, hi = 0.5;
+  for (let i = 0; i < 60; i++) {
+    const z = (lo + hi) / 2;
+    if (sumP(z) > 1) lo = z; else hi = z;
+  }
+  const z = (lo + hi) / 2;
+  const out: Record<string, number> = {};
+  keys.forEach((k, i) => (out[k] = pi(z, q[i])));
+  return out;
+}
+
 function evCalc(pTrue: number, odds: number): number {
   return pTrue * odds - 1;
 }
@@ -182,14 +220,14 @@ export function calibrateLambdas(match: EvMatch): { lamH: number; lamA: number; 
   if (src["胜平负"]) {
     const m = src["胜平负"];
     if (m["胜"] && m["平"] && m["负"])
-      t1x2 = devig({ 胜: m["胜"], 平: m["平"], 负: m["负"] });
+      t1x2 = devigShin({ 胜: m["胜"], 平: m["平"], 负: m["负"] });
   }
 
   let tOu: number | null = null, tOuLine: number | null = null;
   if (src["大小球"]) {
     const m = src["大小球"];
     if (m["大"] && m["小"]) {
-      const pou = devig({ 大: m["大"], 小: m["小"] });
+      const pou = devigShin({ 大: m["大"], 小: m["小"] });
       tOu = pou["大"] ?? null;
       tOuLine = m["line"] ?? 2.5;
     }
@@ -199,7 +237,7 @@ export function calibrateLambdas(match: EvMatch): { lamH: number; lamA: number; 
   if (src["亚盘"]) {
     const m = src["亚盘"];
     if (m["主"] && m["客"]) {
-      const pah = devig({ 主: m["主"], 客: m["客"] });
+      const pah = devigShin({ 主: m["主"], 客: m["客"] });
       tAh = pah["主"] ?? null;
       tAhLine = m["line"] ?? null;
     }
@@ -382,15 +420,23 @@ export function buildPicks(
 ): EvPick[] {
   const picks: EvPick[] = [];
   const game = `${match.home} vs ${match.away}`;
+  // 有 sharp 参考盘时更信任模型，否则向体彩市场重收缩（体彩自身拟合出的"优势"多为噪声）
+  const hasRef = Object.keys(match.refMarkets).length > 0;
+  const w = hasRef ? SHRINK_REF : SHRINK_SELF;
 
   for (const [mname, outcomes] of Object.entries(match.markets)) {
     const probs = mp[mname];
     if (!probs) continue;
+    // 该市场体彩自身去水位概率，作为收缩锚点——只有模型强烈不同意市场时才保留偏差
+    const pMkt = devigShin(outcomes);
     for (const [oc, odds] of Object.entries(outcomes)) {
       if (typeof odds !== "number" || oc === "line") continue;
       if (RESIDUAL_OUTCOMES.has(oc)) continue;
-      const pm = probs[oc];
-      if (pm === undefined || pm <= 0) continue;
+      const pRaw = probs[oc];
+      if (pRaw === undefined || pRaw <= 0) continue;
+      // 向市场收缩
+      const pMarket = pMkt[oc];
+      const pm = pMarket !== undefined ? w * pRaw + (1 - w) * pMarket : pRaw;
       const pi = 1 / odds;
       picks.push({
         game, market: mname, outcome: oc, odds,

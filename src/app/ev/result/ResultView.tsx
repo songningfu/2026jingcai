@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { EvPick, EvParlay, MatchAnalysis } from "@/lib/ev-engine";
-import { analyzeMatches, EV_VALUE, MAX_SINGLE, KELLY_FRACTION } from "@/lib/ev-engine";
+import { analyzeMatches, MAX_SINGLE, KELLY_FRACTION } from "@/lib/ev-engine";
 import type { EvMatch } from "@/lib/ev-engine";
 import { DISCLAIMER } from "@/lib/odds";
 
@@ -35,16 +35,20 @@ function safeStake(p: number, o: number, bankroll: number) {
   if (o > 8) return bankroll * 0.005;
   return Math.min(bankroll * kellyCalc(p, o) * KELLY_FRACTION, bankroll * MAX_SINGLE);
 }
+// 竞彩 2 元起注、必须 2 的整数倍
+function round2(x: number) { return Math.max(2, Math.round(x / 2) * 2); }
 function computePlan(parlays: EvParlay[], bankroll: number) {
-  let raw = parlays.filter(p => p.ev > EV_VALUE).slice(0, 6)
-    .map(p => ({ parlay: p, stake: Math.max(1, safeStake(p.pModel, p.odds, bankroll)) }));
+  let raw = parlays.filter(p => p.ev > 0.02).slice(0, 6)
+    .map(p => ({ parlay: p, stake: safeStake(p.pModel, p.odds, bankroll) }));
   const total = raw.reduce((s, x) => s + x.stake, 0);
   const cap = bankroll * 0.2;
   if (total > cap && total > 0) raw = raw.map(x => ({ ...x, stake: x.stake * cap / total }));
+  // 取整到竞彩可买的金额
+  const entries = raw.map(x => ({ parlay: x.parlay, stake: round2(x.stake) }));
   return {
-    entries: raw,
-    totalStake: raw.reduce((s, x) => s + x.stake, 0),
-    expProfit: raw.reduce((s, x) => s + x.stake * x.parlay.ev, 0),
+    entries,
+    totalStake: entries.reduce((s, x) => s + x.stake, 0),
+    expProfit: entries.reduce((s, x) => s + x.stake * x.parlay.ev, 0),
   };
 }
 
@@ -279,7 +283,7 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
       <div className="px-5 py-3 bg-neon/5 border-b border-neon/10 flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-ink">⑤ 方案单（投入参考）</h3>
-          <p className="text-xs text-mut mt-0.5">凯利公式风控：单注 ≤本金{(MAX_SINGLE * 100).toFixed(0)}%，总投入 ≤20%</p>
+          <p className="text-xs text-mut mt-0.5">凯利公式风控 · 单注 ≤本金{(MAX_SINGLE * 100).toFixed(0)}% · 已向市场收缩 · 2元起注</p>
         </div>
         <span className="chip text-xs bg-neon/10 text-neon">仅供参考</span>
       </div>
@@ -308,12 +312,12 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
           </div>
           {plan.entries.map(({ parlay, stake }, i) => {
             const legs = parlay.legs.map(l => `${l.game.split(" vs ")[0]} · ${l.outcome}`);
-            const stakeRounded = Math.max(1, Math.round(stake));
+            const betType = parlay.legs.length === 1 ? "单关" : `${parlay.legs.length}串1`;
             return (
               <div key={i} className="px-4 py-3 border-b border-line last:border-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs text-faint">注{i + 1} · {parlay.legs.length}串1</span>
+                    <span className="text-xs text-faint">注{i + 1} · {betType}</span>
                     <div className="mt-1 space-y-0.5">
                       {legs.map((leg, j) => (
                         <p key={j} className="text-xs text-ink/80">└ {leg}</p>
@@ -327,7 +331,7 @@ function BankrollPlanner({ parlays }: { parlays: EvParlay[] }) {
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="font-num tabular-nums text-amber font-semibold">{parlay.odds.toFixed(2)}倍</p>
-                    <p className="font-num tabular-nums text-neon font-bold text-lg">{stakeRounded}<span className="text-xs font-normal ml-0.5">元</span></p>
+                    <p className="font-num tabular-nums text-neon font-bold text-lg">{stake}<span className="text-xs font-normal ml-0.5">元</span></p>
                   </div>
                 </div>
               </div>
@@ -480,11 +484,24 @@ function SystemBetCard({ bets, label }: { bets: EvParlay[]; label: string }) {
 
 export default function ResultView({ matches }: { matches: EvMatch[] }) {
   const result = useMemo(() => analyzeMatches(matches), [matches]);
+  // 方案单优先纳入单关（直注贴水最低、最可信），再补真正 +EV 的串关
+  const singleBets: EvParlay[] = useMemo(
+    () => result.analyses.flatMap(a =>
+      a.value.slice(0, 2).map(p => ({
+        legs: [p], odds: p.odds, pModel: p.pModel, ev: p.ev, kelly: p.kelly, allPositive: p.ev > 0,
+      }))
+    ),
+    [result],
+  );
   const valueParlays = [
+    ...singleBets,
     ...result.parlays2.value,
     ...result.parlays3.value,
     ...result.parlays4.value,
-  ].slice(0, 6);
+  ]
+    .filter(p => p.ev > 0.02)
+    .sort((a, b) => b.ev - a.ev)
+    .slice(0, 6);
 
   const [sortBy, setSortBy] = useState<"value" | "hit">("value");
   const [mf, setMf] = useState<Set<string>>(new Set());
@@ -655,7 +672,20 @@ export default function ResultView({ matches }: { matches: EvMatch[] }) {
       )}
 
       {/* 资金计划 / 方案单 */}
-      {valueParlays.length > 0 && <BankrollPlanner parlays={valueParlays} />}
+      {valueParlays.length > 0 ? (
+        <BankrollPlanner parlays={valueParlays} />
+      ) : (
+        <div className="card p-5 anim-fade-up">
+          <h3 className="font-semibold text-ink mb-1">⑤ 方案单（投入参考）</h3>
+          <p className="text-sm text-mut leading-relaxed">
+            本批次<strong className="text-ink">没找到足够划算的点</strong>，不生成方案单。
+          </p>
+          <p className="text-xs text-faint mt-2 leading-relaxed">
+            模型概率已向体彩市场收缩、剔除噪声后，这几场的赔率都贴近真实水平，没有明显偏差——
+            这是正常结果，赔率有效的市场本就难有便宜可捡。换几场「精校」标记的比赛可能会有。
+          </p>
+        </div>
+      )}
 
       {/* 免责声明 */}
       <div className="rounded-xl border border-line/60 p-4 bg-raised/40 text-xs text-faint leading-relaxed">
