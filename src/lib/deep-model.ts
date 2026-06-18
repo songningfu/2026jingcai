@@ -2,14 +2,16 @@
  * 深度推演：足球赛果概率模型（规格第 5 章数学工具 + 第 0 章合规口径）
  *
  * 真实模型，每步独立可调用，供 SSE 路由逐步 emit。管线：
- *   1) 赔率去水位（比例法 de-vig）→ 市场隐含概率
+ *   1) 赔率去水位（Shin 法 de-vig，与 EV 引擎一致）→ 市场隐含概率
  *   2) 拟合双变量泊松的期望进球 λ_home / λ_away，使其复现市场胜平负
- *   3) Dixon-Coles 低比分修正（rho）
+ *   3) Dixon-Coles 低比分修正（rho，与 EV 引擎共用 dc-constants）
  *   4) 展开为完整比分概率矩阵 → 最可能比分、期望总进球、置信度
  *
  * 【合规】输出为「对不确定性的量化」，非预测胜负；调用方展示时必须带免责声明，
  * 不得据此给出任何投注倾向或「买哪个」的结论。
  */
+
+import { DC_RHO, DC_MAX_GOALS } from "./dc-constants";
 
 export interface WhlInput {
   win: number;   // 主胜十进制赔率
@@ -46,8 +48,8 @@ export interface RecentForm {
   homeGF: number; homeGA: number; awayGF: number; awayGA: number;
 }
 
-export const MAX_GOALS = 8;
-export const DC_RHO = -0.11;
+export const MAX_GOALS = DC_MAX_GOALS;
+export { DC_RHO };
 
 export function round(n: number, d = 2): number {
   const f = 10 ** d;
@@ -216,18 +218,31 @@ export function rankingPrior(homeRank: number, awayRank: number): {
   return { win: pWin / s, draw: pDraw / s, loss: pLoss / s };
 }
 
-/** 去水位，返回市场隐含概率和返还率 */
+/** 去水位（Shin 法，与 ev-engine 一致），返回市场隐含概率和返还率 */
 export function deVig(odds: WhlInput): {
   marketProb: { win: number; draw: number; loss: number };
   returnRate: number;
   vig: number;
 } {
-  const raw = { win: 1 / odds.win, draw: 1 / odds.draw, loss: 1 / odds.loss };
-  const s = raw.win + raw.draw + raw.loss;
-  const returnRate = 1 / s;
-  const vig = (s - 1) / s;
+  const q = [1 / odds.win, 1 / odds.draw, 1 / odds.loss];
+  const B = q[0] + q[1] + q[2]; // 含水位总隐含概率
+  const returnRate = 1 / B;
+  const vig = (B - 1) / B;
+  // Shin：修正热门-冷门偏差。解 z 使 Σp=1（z=0 时 Σp=√B>1，z 增大 Σp 减小）
+  const pf = (z: number, qi: number) =>
+    (Math.sqrt(z * z + 4 * (1 - z) * (qi * qi) / B) - z) / (2 * (1 - z));
+  let lo = 0, hi = 0.5;
+  if (B > 1) {
+    for (let i = 0; i < 60; i++) {
+      const z = (lo + hi) / 2;
+      if (q.reduce((s, qi) => s + pf(z, qi), 0) > 1) lo = z; else hi = z;
+    }
+  }
+  const z = (lo + hi) / 2;
+  const p = B > 1 ? q.map((qi) => pf(z, qi)) : q.map((qi) => qi / B);
+  const ps = p[0] + p[1] + p[2];
   return {
-    marketProb: { win: raw.win / s, draw: raw.draw / s, loss: raw.loss / s },
+    marketProb: { win: p[0] / ps, draw: p[1] / ps, loss: p[2] / ps },
     returnRate,
     vig,
   };

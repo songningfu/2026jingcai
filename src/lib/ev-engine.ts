@@ -5,10 +5,11 @@
  * 仅供数学分析参考，不构成任何投注建议。
  */
 
+import { DC_RHO, DC_MAX_GOALS } from "./dc-constants";
+
 // ── 常量 ──────────────────────────────────────────────────
 
-const MAXG = 8;
-const DC_RHO = -0.13;
+const MAXG = DC_MAX_GOALS;
 const FIRST_HALF_RATIO = 0.45;
 
 const P_STABLE = 0.58;
@@ -414,29 +415,46 @@ export function scoreMatrix(lamH: number, lamA: number, size = 6): number[][] {
 
 // ── 推荐器 ─────────────────────────────────────────────────
 
+/**
+ * 把模型各玩法概率向体彩市场（Shin 去水位）收缩一次，作为对外统一的"估算概率"。
+ * 有 sharp 参考盘时轻收缩（保住体彩 vs 锐盘偏差信号），仅体彩自评时重收缩（压噪声）。
+ * 收缩只此一处——单注表、胜平负柱状图、速览表全用同一组数，避免页面内数字打架。
+ */
+export function applyShrink(
+  match: EvMatch,
+  mp: Record<string, Record<string, number>>,
+): Record<string, Record<string, number>> {
+  const hasRef = Object.keys(match.refMarkets).length > 0;
+  const w = hasRef ? SHRINK_REF : SHRINK_SELF;
+  const out: Record<string, Record<string, number>> = {};
+  for (const [mname, probs] of Object.entries(mp)) {
+    const odds = match.markets[mname];
+    const pMkt = odds ? devigShin(odds) : {};
+    const blended: Record<string, number> = {};
+    for (const [oc, pRaw] of Object.entries(probs)) {
+      const pMarket = pMkt[oc];
+      blended[oc] = pMarket !== undefined ? w * pRaw + (1 - w) * pMarket : pRaw;
+    }
+    out[mname] = blended;
+  }
+  return out;
+}
+
 export function buildPicks(
   match: EvMatch,
   mp: Record<string, Record<string, number>>,
 ): EvPick[] {
   const picks: EvPick[] = [];
   const game = `${match.home} vs ${match.away}`;
-  // 有 sharp 参考盘时更信任模型，否则向体彩市场重收缩（体彩自身拟合出的"优势"多为噪声）
-  const hasRef = Object.keys(match.refMarkets).length > 0;
-  const w = hasRef ? SHRINK_REF : SHRINK_SELF;
 
   for (const [mname, outcomes] of Object.entries(match.markets)) {
-    const probs = mp[mname];
+    const probs = mp[mname]; // mp 已是收缩后的统一估算概率
     if (!probs) continue;
-    // 该市场体彩自身去水位概率，作为收缩锚点——只有模型强烈不同意市场时才保留偏差
-    const pMkt = devigShin(outcomes);
     for (const [oc, odds] of Object.entries(outcomes)) {
       if (typeof odds !== "number" || oc === "line") continue;
       if (RESIDUAL_OUTCOMES.has(oc)) continue;
-      const pRaw = probs[oc];
-      if (pRaw === undefined || pRaw <= 0) continue;
-      // 向市场收缩
-      const pMarket = pMkt[oc];
-      const pm = pMarket !== undefined ? w * pRaw + (1 - w) * pMarket : pRaw;
+      const pm = probs[oc];
+      if (pm === undefined || pm <= 0) continue;
       const pi = 1 / odds;
       picks.push({
         game, market: mname, outcome: oc, odds,
@@ -463,7 +481,7 @@ export function classify(picks: EvPick[]): { stable: EvPick[]; value: EvPick[]; 
 
 function candidatePool(match: EvMatch): EvPick[] {
   const { lamH, lamA } = calibrateLambdas(match);
-  const mp = modelProbs(match, lamH, lamA);
+  const mp = applyShrink(match, modelProbs(match, lamH, lamA));
   const picks = buildPicks(match, mp).filter((p) => p.pModel >= POOL_MIN_P);
   const byEv = [...picks].sort((a, b) => b.ev - a.ev).slice(0, POOL_TOP_EV);
   const byP = [...picks].sort((a, b) => b.pModel - a.pModel).slice(0, POOL_TOP_P);
@@ -586,7 +604,8 @@ export function analyzeMatches(matches: EvMatch[]): EVResult {
 
   for (const match of matches) {
     const { lamH, lamA, source } = calibrateLambdas(match);
-    const mp = modelProbs(match, lamH, lamA);
+    // 收缩一次，mp 即对外统一的估算概率（柱状图/速览/单注表同源）
+    const mp = applyShrink(match, modelProbs(match, lamH, lamA));
     const picks = buildPicks(match, mp);
     const { stable, value, longshot } = classify(picks);
     const scores = scoreMatrix(lamH, lamA, 6);
