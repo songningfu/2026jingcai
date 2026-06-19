@@ -4,6 +4,7 @@ import Link from "next/link";
 import "./globals.css";
 import NavLinks from "@/components/NavLinks";
 import BottomNav from "@/components/BottomNav";
+import MobileMenu from "@/components/MobileMenu";
 import DisclaimerButton from "@/components/DisclaimerButton";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import AnnouncementBell from "@/components/AnnouncementBell";
@@ -59,12 +60,9 @@ export default function RootLayout({
             </div>
             {/* 右上角：手机端 */}
             <div className="ml-auto flex items-center gap-1 sm:hidden">
-              <Link href="/pricing"
-                className="rounded-lg bg-neon/10 px-3 py-1.5 text-xs font-semibold text-neon transition-colors active:bg-neon/20">
-                订阅
-              </Link>
               <AnnouncementBell />
               <DisclaimerButton />
+              <MobileMenu />
             </div>
             {/* 桌面端右侧：喇叭公告图标 */}
             <div className="ml-auto hidden sm:flex items-center gap-2">
