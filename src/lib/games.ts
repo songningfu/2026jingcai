@@ -151,6 +151,19 @@ export async function openDeepRun(
   if (!Number.isInteger(matchId)) return { ok: false, message: "比赛参数错误" };
   const profile = await registerOrGet(deviceId);
 
+  // 端午节活动（6/20-22）：推演全员免费
+  const bjNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const bjD = bjNow.getFullYear() * 10000 + (bjNow.getMonth() + 1) * 100 + bjNow.getDate();
+  if (bjD >= 20260620 && bjD <= 20260622) {
+    const { error: insErr } = await db
+      .from("unlocks")
+      .insert({ user_id: deviceId, match_id: matchId, model_id: modelId });
+    if (insErr && insErr.code !== "23505") {
+      return { ok: false, message: `开启失败: ${insErr.message}` };
+    }
+    return { ok: true, message: "端午节活动·免积分开启", points: profile.points };
+  }
+
   // 订阅档位 → 实际消耗（Max 全免；Pro 入门/进阶免、旗舰 5 折；Free 全价）
   const { data: sub } = await db
     .from("profiles")

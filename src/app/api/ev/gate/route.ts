@@ -5,17 +5,9 @@ import { activeTier } from "@/lib/subscriptions";
 
 export const EV_ANALYSIS_COST = 150;
 
-// 端午节免费区间（北京时间 2026-06-20 00:00 ~ 2026-06-22 23:59）
-function isDuanwuFree(): boolean {
-  const now = new Date();
-  const bj = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
-  const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
-  return d >= 20260620 && d <= 20260622;
-}
-
 /**
  * POST { deviceId }
- * 免费条件：端午节期间 / 首次 / Pro·Max 订阅用户
+ * 免费条件：首次 / Pro·Max 订阅用户
  * 否则扣 150 积分；积分不足返回 402
  */
 export async function POST(req: NextRequest) {
@@ -36,11 +28,6 @@ export async function POST(req: NextRequest) {
 
     if (error || !profile) {
       return NextResponse.json({ error: "查询用户失败" }, { status: 500 });
-    }
-
-    // 端午节活动：全员免费
-    if (isDuanwuFree()) {
-      return NextResponse.json({ ok: true, free: true, reason: "duanwu", pointsLeft: profile.points });
     }
 
     // Pro / Max 订阅：免积分
