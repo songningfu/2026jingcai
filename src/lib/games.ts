@@ -154,7 +154,7 @@ export async function openDeepRun(
   // 端午节活动（6/20-22）：推演全员免费
   const bjNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
   const bjD = bjNow.getFullYear() * 10000 + (bjNow.getMonth() + 1) * 100 + bjNow.getDate();
-  if (bjD >= 20260620 && bjD <= 20260622) {
+  if (bjD >= 20260619 && bjD <= 20260622) {
     const { error: insErr } = await db
       .from("unlocks")
       .insert({ user_id: deviceId, match_id: matchId, model_id: modelId });
@@ -345,7 +345,7 @@ export async function checkin(
   // 端午节活动（6/20-22）额外赠 100 积分
   const bj = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
   const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
-  const duanwuBonus = (d >= 20260620 && d <= 20260622) ? 100 : 0;
+  const duanwuBonus = (d >= 20260619 && d <= 20260622) ? 100 : 0;
   const awarded = base + duanwuBonus;
   const newPoints = profile.points + awarded;
   await db

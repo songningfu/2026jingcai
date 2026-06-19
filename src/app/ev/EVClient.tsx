@@ -155,7 +155,7 @@ function PointsModal({ points, onClose, onConfirm }: {
 function isDuanwu(): boolean {
   const bj = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
   const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
-  return d >= 20260620 && d <= 20260622;
+  return d >= 20260619 && d <= 20260622;
 }
 
 export default function EVClient({ matches }: { matches: EvMatch[] }) {
@@ -307,7 +307,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
         {duanwu && (
           <div className="rounded-xl border border-amber/20 bg-amber/5 p-3 text-xs text-mut flex items-center gap-2">
             <span className="text-base shrink-0">🐉</span>
-            <span><strong className="text-ink">端午节活动</strong>（6月20–22日）：AI 推演全员免费 · 签到额外 +100 积分</span>
+            <span><strong className="text-ink">端午节活动</strong>（6月19–22日）：AI 推演全员免费 · 签到额外 +100 积分</span>
           </div>
         )}
 
