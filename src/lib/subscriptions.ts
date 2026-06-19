@@ -36,12 +36,13 @@ export const SUB_PLANS: Record<SubTier, SubPlan> = {
     tier: "pro",
     name: "Pro",
     badge: "PRO",
-    priceLabel: "¥20",
+    priceLabel: "¥9.9",
     highlight: true,
     checkinBonus: 200,
     perks: [
       "入门 / 进阶 / 国产旗舰推演 · 免积分无限",
       "国际旗舰（Claude / GPT）· 积分 5 折",
+      "EV 分析 · 免积分无限次",
       "每日签到 +200 积分",
       "Pro 专属蓝标徽章",
     ],
@@ -50,17 +51,17 @@ export const SUB_PLANS: Record<SubTier, SubPlan> = {
     tier: "max",
     name: "Max",
     badge: "MAX",
-    priceLabel: "¥49.9",
+    priceLabel: "¥19.9",
     highlight: false,
     checkinBonus: 300,
     perks: [
       "全部大模型推演 · 免积分无限",
+      "EV 分析 · 免积分无限次",
       "Max 专属直连通道 · 旗舰模型优先",
       "每日签到 +300 积分",
       "赔率异动提醒（即将上线）",
       "冠军金标徽章 · 尊享标识",
     ],
-
   },
 };
 

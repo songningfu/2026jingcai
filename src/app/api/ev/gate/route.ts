@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidDeviceId, registerOrGet } from "@/lib/games";
 import { supabaseAdmin } from "@/lib/supabase";
+import { activeTier } from "@/lib/subscriptions";
 
-export const EV_ANALYSIS_COST = 150; // 每次消耗积分
+export const EV_ANALYSIS_COST = 150;
+
+// 端午节免费区间（北京时间 2026-06-20 00:00 ~ 2026-06-22 23:59）
+function isDuanwuFree(): boolean {
+  const now = new Date();
+  const bj = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
+  return d >= 20260620 && d <= 20260622;
+}
 
 /**
  * POST { deviceId }
- * 首次免费；后续每次扣 150 积分。
- * 返回 { ok, free, pointsLeft } 或 { error, pointsLeft }
+ * 免费条件：端午节期间 / 首次 / Pro·Max 订阅用户
+ * 否则扣 150 积分；积分不足返回 402
  */
 export async function POST(req: NextRequest) {
   try {
@@ -17,13 +26,11 @@ export async function POST(req: NextRequest) {
     }
 
     const db = supabaseAdmin();
-
-    // 确保档案存在（没有则自动注册）
     await registerOrGet(deviceId);
 
     const { data: profile, error } = await db
       .from("profiles")
-      .select("id, points, ev_free_used")
+      .select("id, points, ev_free_used, sub_type, sub_expires")
       .eq("id", deviceId)
       .single();
 
@@ -31,13 +38,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "查询用户失败" }, { status: 500 });
     }
 
+    // 端午节活动：全员免费
+    if (isDuanwuFree()) {
+      return NextResponse.json({ ok: true, free: true, reason: "duanwu", pointsLeft: profile.points });
+    }
+
+    // Pro / Max 订阅：免积分
+    const tier = activeTier(profile.sub_type, profile.sub_expires);
+    if (tier === "pro" || tier === "max") {
+      return NextResponse.json({ ok: true, free: true, reason: "sub", pointsLeft: profile.points });
+    }
+
     // 首次免费
     if (!profile.ev_free_used) {
-      await db
-        .from("profiles")
-        .update({ ev_free_used: true })
-        .eq("id", deviceId);
-      return NextResponse.json({ ok: true, free: true, pointsLeft: profile.points });
+      await db.from("profiles").update({ ev_free_used: true }).eq("id", deviceId);
+      return NextResponse.json({ ok: true, free: true, reason: "first", pointsLeft: profile.points });
     }
 
     // 积分不足

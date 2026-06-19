@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { EvMatch } from "@/lib/ev-engine";
 import { teamFlag } from "@/lib/team-names";
 import { getDeviceId } from "@/lib/device-id";
+import { activeTier, type SubTier } from "@/lib/subscriptions";
 
 const EV_COST = 150;
 
@@ -135,7 +136,7 @@ function PointsModal({ points, onClose, onConfirm }: {
           <p className="text-sm text-mut mt-1">你当前有 <span className="font-num tabular-nums font-semibold text-ink">{points}</span> 积分</p>
         </div>
         <div className="rounded-xl bg-raised/60 p-3 text-xs text-mut mb-4 text-center leading-relaxed">
-          每日签到 +40 积分 · 新用户注册 +300 积分<br/>首次分析免费，后续每次消耗 {EV_COST} 积分
+          首次分析免费，后续每次消耗 {EV_COST} 积分<br/><a href="/pricing" className="text-neon underline underline-offset-2">订阅 Pro/Max 后免积分无限次</a>
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-full border border-line text-sm text-mut hover:bg-raised transition">取消</button>
@@ -150,6 +151,13 @@ function PointsModal({ points, onClose, onConfirm }: {
 
 // ── 主组件 ───────────────────────────────────────────────────
 
+// 端午节区间判断（客户端）
+function isDuanwu(): boolean {
+  const bj = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
+  return d >= 20260620 && d <= 20260622;
+}
+
 export default function EVClient({ matches }: { matches: EvMatch[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -157,11 +165,31 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
   const [showTutorial, setShowTutorial] = useState(false);
   const [showPointsConfirm, setShowPointsConfirm] = useState<{ points: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [subTier, setSubTier] = useState<SubTier>("free");
+  const duanwu = isDuanwu();
 
   // 首次访问自动弹教程
   useEffect(() => {
     const seen = localStorage.getItem("ev_tutorial_seen");
     if (!seen) setShowTutorial(true);
+  }, []);
+
+  // 读取订阅状态
+  useEffect(() => {
+    const id = localStorage.getItem("qiuyi_device_id");
+    if (!id) return;
+    fetch("/api/account/me", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId: id }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.account) {
+          setSubTier(activeTier(data.account.sub_type, data.account.sub_expires));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const showToast = (msg: string) => {
@@ -202,7 +230,7 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
 
       if (res.status === 402) {
         // 积分不足
-        showToast(`积分不足（需 ${EV_COST} 积分，当前 ${data.pointsLeft ?? 0} 积分）。每日签到可获得 40 积分。`);
+        showToast(`积分不足（需 ${EV_COST} 积分，当前 ${data.pointsLeft ?? 0} 积分）。订阅 Pro 后可免积分使用。`);
         setGoing(false);
         return;
       }
@@ -275,11 +303,25 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
           </button>
         </div>
 
-        {/* 积分说明 */}
-        <div className="rounded-xl border border-amber/20 bg-amber/5 p-3 text-xs text-mut flex items-center gap-2">
-          <span className="text-base shrink-0">🪙</span>
-          <span>首次分析 <strong className="text-ink">免费</strong>，之后每次消耗 <strong className="text-ink">{EV_COST} 积分</strong>（签到每天 +40 积分）</span>
-        </div>
+        {/* 端午节活动 banner */}
+        {duanwu && (
+          <div className="rounded-xl border border-neon/30 bg-neon/5 p-3 text-xs text-neon flex items-center gap-2">
+            <span className="text-base shrink-0">🐉</span>
+            <span><strong>端午节活动</strong>（6月20–22日）：EV 分析全员免费，不消耗积分！</span>
+          </div>
+        )}
+
+        {/* 积分/订阅说明 */}
+        {!duanwu && (
+          <div className="rounded-xl border border-amber/20 bg-amber/5 p-3 text-xs text-mut flex items-center gap-2">
+            <span className="text-base shrink-0">🪙</span>
+            {subTier === "pro" || subTier === "max" ? (
+              <span><strong className="text-ink">{subTier === "max" ? "Max" : "Pro"} 订阅</strong> · EV 分析免积分无限次 ✓</span>
+            ) : (
+              <span>首次分析 <strong className="text-ink">免费</strong>，之后每次消耗 <strong className="text-ink">{EV_COST} 积分</strong> · <a href="/pricing" className="text-neon underline underline-offset-2">订阅后免费</a></span>
+            )}
+          </div>
+        )}
 
         {/* 选场 + 运行 */}
         <section className="card p-5">
