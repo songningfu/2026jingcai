@@ -305,9 +305,9 @@ export default function EVClient({ matches }: { matches: EvMatch[] }) {
 
         {/* 端午节活动 banner */}
         {duanwu && (
-          <div className="rounded-xl border border-neon/30 bg-neon/5 p-3 text-xs text-neon flex items-center gap-2">
+          <div className="rounded-xl border border-amber/20 bg-amber/5 p-3 text-xs text-mut flex items-center gap-2">
             <span className="text-base shrink-0">🐉</span>
-            <span><strong>端午节活动</strong>（6月20–22日）：EV 分析全员免费，不消耗积分！</span>
+            <span><strong className="text-ink">端午节活动</strong>（6月20–22日）：EV 分析全员免费 · 签到额外 +100 积分</span>
           </div>
         )}
 

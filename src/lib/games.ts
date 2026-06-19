@@ -328,14 +328,22 @@ export async function checkin(
     .select("sub_type, sub_expires")
     .eq("id", deviceId)
     .single();
-  const awarded = checkinBonus(activeTier(sub?.sub_type, sub?.sub_expires));
+  const base = checkinBonus(activeTier(sub?.sub_type, sub?.sub_expires));
+  // 端午节活动（6/20-22）额外赠 100 积分
+  const bj = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const d = bj.getFullYear() * 10000 + (bj.getMonth() + 1) * 100 + bj.getDate();
+  const duanwuBonus = (d >= 20260620 && d <= 20260622) ? 100 : 0;
+  const awarded = base + duanwuBonus;
   const newPoints = profile.points + awarded;
   await db
     .from("profiles")
     .update({ points: newPoints, last_checkin: today, updated_at: new Date().toISOString() })
     .eq("id", deviceId);
   await addPoints(deviceId, awarded, "checkin");
-  return { ok: true, points: newPoints, awarded, message: `签到成功 +${awarded}` };
+  const msg = duanwuBonus > 0
+    ? `签到成功 +${awarded}（含端午节奖励 +${duanwuBonus}）`
+    : `签到成功 +${awarded}`;
+  return { ok: true, points: newPoints, awarded, message: msg };
 }
 
 /** 该场胜平负官方赔率 → 各结果倍数（无则用默认） */
